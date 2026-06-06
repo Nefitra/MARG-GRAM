@@ -1,0 +1,120 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Profile data for Telegram Mini App users",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique user ID" },
+        "telegram_user_id": { "type": "string", "description": "Telegram user account identifier" },
+        "username": { "type": "string", "description": "Telegram user alias" },
+        "first_name": { "type": "string", "description": "Telegram user display name" },
+        "wallet_address": { "type": "string", "description": "TON Connected wallet address" },
+        "referral_code": { "type": "string", "description": "Unique referral code generated for sharing" },
+        "referred_by": { "type": "string", "description": "ID of user who invited them" },
+        "created_at": { "type": "string", "format": "date-time", "description": "Registration ISO timestamp" },
+        "last_login_at": { "type": "string", "format": "date-time", "description": "Last access ISO timestamp" }
+      },
+      "required": ["id", "telegram_user_id", "referral_code"]
+    },
+    "Referral": {
+      "title": "Referral Link",
+      "description": "Direct referral linking records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "referrer_user_id": { "type": "string", "description": "User who shared their code" },
+        "referred_user_id": { "type": "string", "description": "Invited user who joined" },
+        "level": { "type": "number", "description": "1 = Direct, 2 = Indirect level" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "reward_status": { "type": "string", "enum": ["pending", "claimed"] }
+      },
+      "required": ["id", "referrer_user_id", "referred_user_id", "level"]
+    },
+    "WalletSnapshot": {
+      "title": "Wallet Balance Snapshot",
+      "description": "Historical account data logged during snapshot events",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "wallet_address": { "type": "string" },
+        "marg_balance": { "type": "number" },
+        "holder_level": { "type": "string" },
+        "holder_power": { "type": "number" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "marg_balance", "holder_power"]
+    },
+    "Reward": {
+      "title": "Reward Allocation",
+      "description": "Loyalty or activity reward grants",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "reward_type": { "type": "string", "enum": ["daily", "referral", "mystery_box"] },
+        "amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "claimed"] },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "reward_type", "amount", "status"]
+    },
+    "Lock": {
+      "title": "Lock Position",
+      "description": "MARG token locked vault positions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "wallet_address": { "type": "string" },
+        "amount": { "type": "number" },
+        "duration_days": { "type": "number" },
+        "multiplier": { "type": "number" },
+        "start_date": { "type": "string", "format": "date-time" },
+        "unlock_date": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["active", "unlocked"] }
+      },
+      "required": ["id", "user_id", "amount", "duration_days", "multiplier", "start_date", "unlock_date", "status"]
+    },
+    "Leaderboard": {
+      "title": "Leaderboard Standings",
+      "description": "Sovereign power standings",
+      "type": "object",
+      "properties": {
+        "user_id": { "type": "string" },
+        "username": { "type": "string" },
+        "holder_power": { "type": "number" },
+        "rank": { "type": "number" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["user_id", "holder_power", "rank", "updated_at"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Sovereign users profile collection"
+    },
+    "/referrals/{referralId}": {
+      "schema": "Referral",
+      "description": "Network connections mapping referrals"
+    },
+    "/wallet_snapshots/{snapshotId}": {
+      "schema": "WalletSnapshot",
+      "description": "Archived snapshot records"
+    },
+    "/rewards/{rewardId}": {
+      "schema": "Reward",
+      "description": "Users claimable and claimed rewards"
+    },
+    "/locks/{lockId}": {
+      "schema": "Lock",
+      "description": "Committed token locks"
+    },
+    "/leaderboard/{userId}": {
+      "schema": "Leaderboard",
+      "description": "Aggregated cache of top holders and leaders details"
+    }
+  }
+}

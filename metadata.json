@@ -1,0 +1,6 @@
+{
+  "name": "MARG Ecosystem",
+  "description": "Interactive Telegram-native portal for the MARG token on TON Central. Featuring holder power, vaults, mystery boxes, and elite leaderboards with cyberpunk visual styles.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
