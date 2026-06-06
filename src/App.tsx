@@ -39,6 +39,7 @@ const DEFAULT_STATE: UserState = {
   locks: [],
   empireCreated: false,
   rank: 0,
+  claimedMilestones: [],
 };
 
 const POWER_TIERS: { level: HolderLevel; minPower: number }[] = [
@@ -120,6 +121,7 @@ export default function App() {
               locks: resData.locks || [],
               empireCreated: (resData.user.referral_count_l1 || 0) > 0,
               rank: 1420,
+              claimedMilestones: resData.user.claimed_milestones || [],
             };
             setState(userState);
           }
@@ -374,12 +376,59 @@ export default function App() {
     }
   };
 
-  // Invite handler
+  // Invite handler (Now correct: click copies link, but referrals only increment via real ref registrations)
   const handleInvitePerson = () => {
-    updatePowerAndLevel({
-      referralCount: state.referralCount + 1,
-      referralPower: state.referralPower + 1500,
+    console.log("Referral link secured: ", referralLink);
+  };
+
+  const handleClaimMilestoneGift = async (milestonePower: number, margReward: number, boxesReward: number) => {
+    // 1. Update the local state with new balance and mystery boxes
+    const nextClaimed = [...(state.claimedMilestones || []), milestonePower];
+    
+    setState(prev => {
+      const updated = {
+        ...prev,
+        claimedMilestones: nextClaimed,
+        balance: prev.balance + margReward,
+        mysteryBoxesOwned: prev.mysteryBoxesOwned + boxesReward
+      };
+      localStorage.setItem('MARG_ECOSYSTEM_STATE', JSON.stringify(updated));
+      return updated;
     });
+
+    // 2. Synchronize with parent stats
+    updatePowerAndLevel({
+      balance: state.balance + margReward,
+      mysteryBoxesOwned: state.mysteryBoxesOwned + boxesReward
+    });
+
+    // 3. Post to backend-sync
+    try {
+      const resp = await fetch('/api/user/claim-milestone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          telegramUserId: tgUser?.id || "14201337",
+          milestonePower,
+          margReward,
+          boxesReward
+        })
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.success && data.user) {
+          // Re-sync correct state from server
+          setState(prev => ({
+            ...prev,
+            balance: data.user.wallet_address ? data.user.ton_marg_balance : data.user.balance,
+            mysteryBoxesOwned: data.user.mystery_boxes_owned,
+            claimedMilestones: data.user.claimed_milestones || nextClaimed
+          }));
+        }
+      }
+    } catch (e) {
+      console.error("Network sync fail for claiming milestone gift:", e);
+    }
   };
 
   const handleConfirmBuy = (margBought: number) => {
@@ -800,7 +849,12 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -15 }}
             >
-              <LeaderboardView userBalance={state.balance} />
+              <LeaderboardView 
+                userBalance={state.balance} 
+                userPower={state.holderPower}
+                claimedMilestones={state.claimedMilestones || []}
+                onClaimMilestoneGift={handleClaimMilestoneGift}
+              />
             </motion.div>
           )}
         </AnimatePresence>

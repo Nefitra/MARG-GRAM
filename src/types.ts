@@ -38,6 +38,7 @@ export interface UserState {
   locks: LockedPosition[];
   empireCreated: boolean;
   rank: number;
+  claimedMilestones: number[];
 }
 
 export interface LeaderboardEntry {

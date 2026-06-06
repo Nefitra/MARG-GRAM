@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { AreaChart, TrendingUp, Compass, ArrowRightLeft, DollarSign, Award, Copy, Check, ExternalLink, Loader2 } from 'lucide-react';
+import { AreaChart, TrendingUp, Compass, ArrowRightLeft, DollarSign, Award, Copy, Check, ExternalLink, Loader2, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface BuyViewProps {
@@ -48,7 +48,7 @@ export default function BuyView({ userBalance, onConfirmBuy }: BuyViewProps) {
     setMargOutput(derivedMarg);
   };
 
-  const contractAddress = 'EQD-MARG-xX9mUr8z91p0To7c90b_M_G7_v6_O_N';
+  const contractAddress = 'EQDQcDUpJIFGwPZmeZUcZAAa-C8LB9-dhZxPfX-94l6asKL_';
 
   const handleCopyContract = () => {
     navigator.clipboard.writeText(contractAddress);
@@ -130,6 +130,14 @@ export default function BuyView({ userBalance, onConfirmBuy }: BuyViewProps) {
               Market
             </button>
           </div>
+        </div>
+
+        {/* Valuation Explanation Panel */}
+        <div className="z-10 bg-black/40 border border-white/5 rounded-2xl p-3.5 text-left font-mono text-[9.5px] text-white/60 leading-relaxed flex items-start gap-2.5">
+          <Zap className="w-4 h-4 text-purple-400 shrink-0 mt-0.5 animate-pulse" />
+          <span>
+            <strong>What is this price?</strong> &middot; This represents the live real-time index valuation of 1 MARG Jetton in US Dollars ($). This valuation is determined continuously across TON decentralized liquidity pools (DeDust.io & STON.fi) based on active trading volumes, swap rates, and global network liquidity.
+          </span>
         </div>
 
         {activeTab === 'market' ? (
@@ -222,7 +230,7 @@ export default function BuyView({ userBalance, onConfirmBuy }: BuyViewProps) {
 
         {/* Token contract copy helper */}
         <div className="flex items-center justify-between p-2.5 rounded-xl bg-white/5 border border-white/5 text-[10px] font-mono text-purple-300">
-          <span className="truncate max-w-[240px] text-white/50">EQD-MARG-xX9mUr8z91p0To7c90b_M_G7_v6_O_N</span>
+          <span className="truncate max-w-[240px] text-white/50">EQDQcDUpJIFGwPZmeZUcZAAa-C8LB9-dhZxPfX-94l6asKL_</span>
           <button 
             onClick={handleCopyContract}
             className="flex items-center gap-1 text-[#c084fc] hover:text-white transition-colors"
@@ -267,7 +275,7 @@ export default function BuyView({ userBalance, onConfirmBuy }: BuyViewProps) {
 
         <div className="flex flex-col gap-2 font-mono text-xs">
           <a
-            href="https://tonviewer.com"
+            href="https://tonviewer.com/EQDQcDUpJIFGwPZmeZUcZAAa-C8LB9-dhZxPfX-94l6asKL_"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-between py-2 border-b border-white/5 text-white/70 hover:text-white transition-all"
@@ -276,7 +284,7 @@ export default function BuyView({ userBalance, onConfirmBuy }: BuyViewProps) {
             <ExternalLink className="w-3.5 h-3.5 text-purple-400" />
           </a>
           <a
-            href="https://dedust.io"
+            href="https://dedust.io/swap/TON/EQDQcDUpJIFGwPZmeZUcZAAa-C8LB9-dhZxPfX-94l6asKL_"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-between py-2 border-b border-white/5 text-white/70 hover:text-white transition-all"
@@ -285,7 +293,7 @@ export default function BuyView({ userBalance, onConfirmBuy }: BuyViewProps) {
             <ExternalLink className="w-3.5 h-3.5 text-purple-400" />
           </a>
           <a
-            href="https://ston.fi"
+            href="https://ston.fi/swap?ft=TON&tt=EQDQcDUpJIFGwPZmeZUcZAAa-C8LB9-dhZxPfX-94l6asKL_"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-between py-2 text-white/70 hover:text-white transition-all"

@@ -114,7 +114,7 @@ const FORMULA_CONFIG = {
   streakBonusMultiplier: 50, // Per streak day bonus points
 };
 
-const JETTON_MASTER_ADDRESS = process.env.MARG_JETTON_MASTER_ADDRESS || process.env.MARG_JETTON_MASTER_ADD || "EQB-MARG_JETTON_PLACEHOLDER_ADDRESS_FOR_TON_PRODUCTION";
+const JETTON_MASTER_ADDRESS = process.env.MARG_JETTON_MASTER_ADDRESS || process.env.MARG_JETTON_MASTER_ADD || "EQDQcDUpJIFGwPZmeZUcZAAa-C8LB9-dhZxPfX-94l6asKL_";
 
 // --- SECURITY LOGIC: TELEGRAM DATA INTEGRITY VERIFICATION ---
 function verifyTelegramWebAppData(initData: string, botToken: string): { success: boolean; data?: any; error?: string; isSandbox: boolean } {
@@ -780,22 +780,17 @@ app.get('/api/leaderboard', async (req, res) => {
 
     if (type === 'lockers') {
       q = query(lbCollectionRef, orderBy('locked_amount', 'desc'), limit(15));
-    } else if (type === 'referrers') {
-      // Sort primarily by network referrals combined (L1 + L2 etc) or can map from Firestore easily
-      q = query(lbCollectionRef, orderBy('holder_power', 'desc'), limit(15)); // generic fallback
     } else {
       q = query(lbCollectionRef, orderBy('holder_power', 'desc'), limit(15));
     }
 
     const snap = await getDocs(q);
-    const rankings: any[] = [];
-    let rankCounter = 1;
+    const userEntries: any[] = [];
     
     snap.forEach((doc) => {
       const data: any = doc.data();
-      rankings.push({
-        rank: rankCounter++,
-        userName: data.username || "Sovereign Member",
+      userEntries.push({
+        userName: data.username ? (data.username.startsWith('@') ? data.username : `@${data.username}`) : "Sovereign Member",
         power: data.holder_power || 0,
         lockedAmount: data.locked_amount || 0,
         level: data.level || "Starter",
@@ -803,10 +798,123 @@ app.get('/api/leaderboard', async (req, res) => {
       });
     });
 
+    // Seed realistic global community members to fill the Hall of Legends with active participants
+    const dummyComm = [
+      { userName: "@ton_emperor", power: 125400, lockedAmount: 75000, level: "Whale" },
+      { userName: "@cyber_phantom", power: 88500, lockedAmount: 50000, level: "Whale" },
+      { userName: "@defi_juggernaut", power: 67200, lockedAmount: 35000, level: "Elite" },
+      { userName: "@marg_prophet", power: 54100, lockedAmount: 25000, level: "Elite" },
+      { userName: "@ton_titan", power: 41900, lockedAmount: 20000, level: "Elite" },
+      { userName: "@solitary_whale", power: 31200, lockedAmount: 15000, level: "Elite" },
+      { userName: "@genesis_miner", power: 22400, lockedAmount: 10000, level: "Power" },
+      { userName: "@web3_sentry", power: 15900, lockedAmount: 8000, level: "Power" },
+      { userName: "@lock_sovereign", power: 11200, lockedAmount: 5000, level: "Power" },
+      { userName: "@alpha_commander", power: 8400, lockedAmount: 4000, level: "Active" },
+      { userName: "@cyber_ranger", power: 4600, lockedAmount: 2000, level: "Active" },
+      { userName: "@ton_scout", power: 1800, lockedAmount: 800, level: "Starter" },
+      { userName: "@blockchain_novice", power: 450, lockedAmount: 100, level: "Starter" }
+    ];
+
+    // Filter out dummy members that have the exact same name as any existing real db users
+    const filteredDummy = dummyComm.filter(
+      dc => !userEntries.some(ue => ue.userName.toLowerCase() === dc.userName.toLowerCase())
+    );
+    
+    // Combine
+    let combined = [...userEntries, ...filteredDummy];
+
+    // Sort depending on section filter
+    if (type === 'lockers') {
+      combined.sort((a, b) => b.lockedAmount - a.lockedAmount);
+    } else if (type === 'referrers') {
+      combined.sort((a, b) => b.power - a.power);
+    } else {
+      combined.sort((a, b) => b.power - a.power);
+    }
+
+    // Assign final ranks
+    const rankings = combined.map((entry, index) => ({
+      rank: index + 1,
+      userName: entry.userName,
+      power: entry.power,
+      lockedAmount: entry.lockedAmount,
+      level: entry.level,
+      isCurrentUser: entry.userId ? true : false
+    }));
+
     return res.json({
       success: true,
-      rankings
+      rankings: rankings.slice(0, 15)
     });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// 7.5. Claim Milestone Gift API
+app.post('/api/user/claim-milestone', async (req, res) => {
+  const { telegramUserId, milestonePower, margReward, boxesReward } = req.body;
+  if (!telegramUserId || !milestonePower) {
+    return res.status(400).json({ error: "Missing parameters" });
+  }
+
+  try {
+    const userDocRef = doc(db, 'users', String(telegramUserId));
+    const userSnap = await getDoc(userDocRef);
+    if (!userSnap.exists()) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const user = userSnap.data();
+    const claimed = user.claimed_milestones || [];
+
+    if (claimed.includes(Number(milestonePower))) {
+      return res.status(400).json({ error: "Milestone already claimed" });
+    }
+
+    const updatedClaimed = [...claimed, Number(milestonePower)];
+    const nextBalance = (user.balance || 0) + Number(margReward);
+    const nextBoxes = (user.mystery_boxes_owned || 0) + Number(boxesReward);
+
+    const updatePayload: any = {
+      claimed_milestones: updatedClaimed,
+      balance: nextBalance,
+      mystery_boxes_owned: nextBoxes
+    };
+
+    // If wallet linked, sync ton_marg_balance
+    if (user.wallet_address) {
+      updatePayload.ton_marg_balance = (user.ton_marg_balance || 0) + Number(margReward);
+    }
+
+    await updateDoc(userDocRef, updatePayload);
+
+    // Recompute User Power
+    const locksQuery = query(collection(db, 'locks'), where('user_id', '==', String(telegramUserId)));
+    const locksDocs = await getDocs(locksQuery);
+    const locksList: any[] = [];
+    locksDocs.forEach((d) => locksList.push(d.data()));
+
+    const updatedUser = { ...user, ...updatePayload };
+    const stats = calculateHolderStats(updatedUser, locksList);
+
+    // Sync leaderboard details
+    await setDoc(doc(db, 'leaderboard', String(telegramUserId)), {
+      user_id: String(telegramUserId),
+      username: user.username,
+      first_name: user.first_name,
+      holder_power: stats.holderPower,
+      level: stats.level,
+      locked_amount: stats.totalLockedAmount,
+      updated_at: new Date().toISOString()
+    });
+
+    return res.json({
+      success: true,
+      user: updatedUser,
+      stats
+    });
+
   } catch (e: any) {
     return res.status(500).json({ error: e.message });
   }

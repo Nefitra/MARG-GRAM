@@ -50,7 +50,7 @@ export default function SnapshotBanner({ userBalance, userLocked, referralsCount
     return () => clearInterval(interval);
   }, []);
 
-  const contractAddress = 'EQD-MARG-xX9mUr8z91p0To7c90b_M_G7_v6_O_N';
+  const contractAddress = 'EQDQcDUpJIFGwPZmeZUcZAAa-C8LB9-dhZxPfX-94l6asKL_';
 
   const handleCopyContractAddress = () => {
     navigator.clipboard.writeText(contractAddress);
