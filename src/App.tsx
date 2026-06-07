@@ -54,6 +54,18 @@ export default function App() {
   const [tonConnectUI] = useTonConnectUI();
   const tonAddress = useTonAddress();
 
+  const apiFetch = async (url: string, options: any = {}) => {
+    const initData = (window as any).TELEGRAM_INIT_DATA || localStorage.getItem('MARG_ECOSYSTEM_INIT_DATA') || "";
+    return fetch(url, {
+      ...options,
+      headers: {
+        ...options.headers,
+        'Content-Type': 'application/json',
+        'X-Telegram-Init-Data': initData,
+      }
+    });
+  };
+
   const [state, setState] = useState<UserState>(() => {
     const saved = localStorage.getItem('MARG_ECOSYSTEM_STATE');
     if (saved) {
@@ -91,10 +103,11 @@ export default function App() {
             first_name: "Demo Sovereign Member"
           })) + "&hash=mock_demo_mode_hash";
         }
+        (window as any).TELEGRAM_INIT_DATA = initData;
+        localStorage.setItem('MARG_ECOSYSTEM_INIT_DATA', initData);
 
-        const response = await fetch('/api/user/init', {
+        const response = await apiFetch('/api/user/init', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             initData, 
             walletAddress: tonAddress || "" 
@@ -154,9 +167,8 @@ export default function App() {
   // Synchronize with database if wallet connection state changes
   useEffect(() => {
     if (tonAddress && tgUser) {
-      fetch('/api/user/connect-wallet', {
+      apiFetch('/api/user/connect-wallet', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           telegramUserId: tgUser.id,
           walletAddress: tonAddress
@@ -227,9 +239,8 @@ export default function App() {
     if (!isClaimAvailable()) return;
 
     try {
-      const resp = await fetch('/api/user/claim-daily', {
+      const resp = await apiFetch('/api/user/claim-daily', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ telegramUserId: tgUser?.id || "14201337" })
       });
       const data = await resp.json();
@@ -263,9 +274,8 @@ export default function App() {
   // 3. Locking Assets
   const handleLockPosition = async (amountLocked: number, durationMonths: number) => {
     try {
-      const resp = await fetch('/api/user/lock', {
+      const resp = await apiFetch('/api/user/lock', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           telegramUserId: tgUser?.id || "14201337",
           amount: amountLocked,
@@ -305,9 +315,8 @@ export default function App() {
   // 4. Mystery Box opener
   const handleOpenMysteryBox = async (val: number, isSpecial: boolean, specialType?: string) => {
     try {
-      const resp = await fetch('/api/user/mystery-box/open', {
+      const resp = await apiFetch('/api/user/mystery-box/open', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           telegramUserId: tgUser?.id || "14201337",
           specialOpen: isSpecial
@@ -348,9 +357,8 @@ export default function App() {
 
   const handleBuyBoxes = async (count: number, cost: number) => {
     try {
-      const resp = await fetch('/api/user/mystery-box/buy', {
+      const resp = await apiFetch('/api/user/mystery-box/buy', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           telegramUserId: tgUser?.id || "14201337",
           count
@@ -402,16 +410,13 @@ export default function App() {
       mysteryBoxesOwned: state.mysteryBoxesOwned + boxesReward
     });
 
-    // 3. Post to backend-sync
+    // 3. Post to backend-sync (rewards calculated server-side internally for maximum security)
     try {
-      const resp = await fetch('/api/user/claim-milestone', {
+      const resp = await apiFetch('/api/user/claim-milestone', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           telegramUserId: tgUser?.id || "14201337",
-          milestonePower,
-          margReward,
-          boxesReward
+          milestonePower
         })
       });
       if (resp.ok) {

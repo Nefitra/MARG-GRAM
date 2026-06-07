@@ -2,82 +2,13 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Global Safety Net default-deny catch-all
+    // Strict Full-Stack Backend Mediation:
+    // All client-side direct writes and reads are blocked (allow read, write: if false).
+    // All Firestore operations must be brokered securely through our Express backend
+    // using the Firebase Admin SDK, ensuring complete access control, telegram identity
+    // integrity verification, and state transition validation.
     match /{document=**} {
       allow read, write: if false;
-    }
-
-    // Standard high-hardness Global helper functions
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    function incoming() {
-      return request.resource.data;
-    }
-
-    function existing() {
-      return resource.data;
-    }
-
-    // Enforced strict rules for individual Collections
-    match /users/{userId} {
-      // Allow user reading their own profile only. Secure PII Isolation.
-      allow get: if isOwner(userId);
-      // For global leaderboard lookups, restrict listing of fields
-      allow list: if isSignedIn();
-      // Write operations are handled securely through backend proxy. 
-      // If client attempts write directly, require strict verification.
-      allow create: if isOwner(userId) && 
-                      incoming().telegram_user_id == userId && 
-                      incoming().referral_code is string &&
-                      incoming().referral_code.size() <= 8;
-      allow update: if isOwner(userId) && 
-                      incoming().telegram_user_id == existing().telegram_user_id &&
-                      incoming().diff(existing()).affectedKeys().hasOnly(['wallet_address', 'last_login_at']);
-    }
-
-    match /referrals/{referralId} {
-      // Users can check references they made
-      allow get: if isSignedIn() && (resource.data.referrer_user_id == request.auth.uid || resource.data.referred_user_id == request.auth.uid);
-      allow list: if isSignedIn() && resource.data.referrer_user_id == request.auth.uid;
-      // Write is restricted to backend proxy only; clients cannot inject fake referrals
-      allow write: if false;
-    }
-
-    match /wallet_snapshots/{snapshotId} {
-      allow get: if isSignedIn() && resource.data.user_id == request.auth.uid;
-      allow list: if isSignedIn() && resource.data.user_id == request.auth.uid;
-      allow write: if false; // System generated snapshots only
-    }
-
-    match /rewards/{rewardId} {
-      allow get: if isSignedIn() && resource.data.user_id == request.auth.uid;
-      allow list: if isSignedIn() && resource.data.user_id == request.auth.uid;
-      allow write: if false; // Backend authoritative rewarding only
-    }
-
-    match /locks/{lockId} {
-      allow get, list: if isSignedIn() && resource.data.user_id == request.auth.uid;
-      // Allow lock positions creation, strictly validating fields
-      allow create: if isSignedIn() && 
-                      incoming().user_id == request.auth.uid &&
-                      incoming().amount > 0 && 
-                      incoming().status == 'active';
-      allow update, delete: if false; // immutable locks
-    }
-
-    match /leaderboard/{userId} {
-      allow get, list: if isSignedIn();
-      allow write: if false; // Caching aggregated details handled on live server
     }
   }
 }
