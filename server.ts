@@ -58,6 +58,10 @@ class LocalDbFallback {
   }
 
   private save() {
+    if (process.env.NODE_ENV === "production" || process.env.DISABLE_LOCAL_FALLBACK === "true") {
+      // Disabled completely and non-persistent in production mode to prevent silent data loss or inconsistencies
+      return;
+    }
     try {
       fs.writeFileSync(this.filePath, JSON.stringify(this.data, null, 2), 'utf8');
     } catch (e: any) {
@@ -106,47 +110,127 @@ class CompatDocumentSnapshot {
   }
 }
 
+async function runWithRetry<T>(operationName: string, path: string, fn: () => Promise<T>): Promise<T> {
+  const maxAttempts = 5;
+  let attempt = 0;
+  let delay = 100; // start with 100ms
+  
+  while (true) {
+    attempt++;
+    try {
+      return await fn();
+    } catch (err: any) {
+      const isTransient = 
+        err.code === 7 || 
+        err.code === 'permission-denied' || 
+        err.message?.includes('permission') || 
+        err.message?.includes('denied') || 
+        err.message?.includes('IAM') ||
+        err.message?.includes('gRPC code 7') ||
+        err.message?.includes('RESOURCE_EXHAUSTED') ||
+        err.status === 429;
+      
+      const isLastAttempt = attempt >= maxAttempts;
+      
+      if (isTransient && !isLastAttempt) {
+        console.warn(`[FIRESTORE RETRY] Attempt ${attempt}/${maxAttempts} failed with transient error for ${operationName} on ${path}. Jitter delaying ${delay}ms before retrying. Error: ${err.message || err}`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay = delay * 2 + Math.floor(Math.random() * 50); // double with jitter
+        continue;
+      }
+      
+      if (isLastAttempt) {
+        console.error(`[FIRESTORE FINAL FAILURE] Max retries (${maxAttempts}) reached for ${operationName} on ${path}. Error: ${err.message || err}`);
+      }
+      throw err;
+    }
+  }
+}
+
 function doc(db: any, col: string, id: string) {
   return { col, id };
 }
 
 async function setDoc(docRef: any, data: any) {
   const { col, id } = docRef;
-  let success = false;
+  const pathStr = `${col}/${id}`;
   if (db) {
     try {
-      await db.collection(col).doc(id).set(data);
-      success = true;
+      await runWithRetry('setDoc', pathStr, async () => {
+        await db.collection(col).doc(id).set(data);
+      });
+      if (process.env.NODE_ENV !== "production") {
+        localFallback.set(col, id, data);
+      }
+      return;
     } catch (err: any) {
-      console.warn(`[FIREBASE] Write denied on ${col}/${id} (Using robust local fallback):`, err.message || err);
+      const isIamError = err.message?.includes('permission') || err.message?.includes('denied') || err.message?.includes('IAM') || err.code === 7 || err.code === 'permission-denied';
+      if (isIamError) {
+        console.error("========================================= FIREBASE PERMISSION / IAM ERROR =========================================");
+        console.error(`CRITICAL: Operational permission denied on ${pathStr} during setDoc operation after retry exhaustion.`);
+        console.error(`Raw Error Msg: ${err.message || err}`);
+        console.error(`Suggested Resolution: Please verify that your Cloud Run service account has proper GCP permissions (e.g., "Cloud Datastore User" or "Firebase Firestore Admin") assigned to your Firestore database.`);
+        console.error("===================================================================================================================");
+      } else {
+        console.error(`[FIREBASE ERROR] setDoc failed on ${pathStr}:`, err.message || err);
+      }
+      throw err;
+    }
+  } else {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(`[FIREBASE ERROR] Cannot write to ${pathStr}: Firestore db is not initialized in production.`);
+    } else {
+      console.warn(`[FIREBASE] Database is not initialized. Using temporary local fallback for development write on ${pathStr}`);
+      localFallback.set(col, id, data);
     }
   }
-  localFallback.set(col, id, data);
 }
 
 async function getDoc(docRef: any) {
   const { col, id } = docRef;
+  const pathStr = `${col}/${id}`;
   if (db) {
     try {
-      const snap = await db.collection(col).doc(id).get();
+      const snap = await runWithRetry('getDoc', pathStr, async () => {
+        return await db.collection(col).doc(id).get();
+      });
       if (snap.exists) {
-        localFallback.set(col, id, snap.data());
-        return new CompatDocumentSnapshot(snap.data(), id, true);
+        const docData = snap.data();
+        if (process.env.NODE_ENV !== "production") {
+          localFallback.set(col, id, docData);
+        }
+        return new CompatDocumentSnapshot(docData, id, true);
       } else {
         return new CompatDocumentSnapshot(null, id, false);
       }
     } catch (err: any) {
-      console.warn(`[FIREBASE] Read denied on ${col}/${id} (Using robust local fallback):`, err.message || err);
+      const isIamError = err.message?.includes('permission') || err.message?.includes('denied') || err.message?.includes('IAM') || err.code === 7 || err.code === 'permission-denied';
+      if (isIamError) {
+        console.error("========================================= FIREBASE PERMISSION / IAM ERROR =========================================");
+        console.error(`CRITICAL: Operational permission denied on ${pathStr} during getDoc operation after retry exhaustion.`);
+        console.error(`Raw Error Msg: ${err.message || err}`);
+        console.error(`Suggested Resolution: Please verify that your Cloud Run service account has proper GCP permissions (e.g., "Cloud Datastore User" or "Firebase Firestore Admin") assigned to your Firestore database.`);
+        console.error("===================================================================================================================");
+      } else {
+        console.error(`[FIREBASE ERROR] getDoc failed on ${pathStr}:`, err.message || err);
+      }
+      throw err;
+    }
+  } else {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(`[FIREBASE ERROR] Cannot read from ${pathStr}: Firestore db is not initialized in production.`);
+    } else {
+      console.warn(`[FIREBASE] Database is not initialized. Using temporary local fallback for development read on ${pathStr}`);
+      const localVal = localFallback.get(col, id);
+      return new CompatDocumentSnapshot(localVal, id, localVal !== null);
     }
   }
-  const localVal = localFallback.get(col, id);
-  return new CompatDocumentSnapshot(localVal, id, localVal !== null);
 }
 
 async function getDocs(queryRef: any) {
   const { col, constraints = [] } = queryRef;
   let docsList: any[] = [];
-  let fbSuccess = false;
+  const pathStr = `query/${col}`;
 
   if (db) {
     try {
@@ -156,48 +240,64 @@ async function getDocs(queryRef: any) {
         else if (c.type === 'orderBy') q = q.orderBy(c.field, c.dir);
         else if (c.type === 'limit') q = q.limit(c.limit);
       }
-      const snap = await q.get();
+      const snap = await runWithRetry('getDocs', pathStr, async () => {
+        return await q.get();
+      });
       docsList = snap.docs.map((d: any) => ({ id: d.id, data: d.data() }));
-      fbSuccess = true;
-      docsList.forEach(({ id, data }) => localFallback.set(col, id, data));
+      if (process.env.NODE_ENV !== "production") {
+        docsList.forEach(({ id, data }) => localFallback.set(col, id, data));
+      }
     } catch (err: any) {
-      console.warn(`[FIREBASE] Query denied on ${col} (Using robust local fallback):`, err.message || err);
+      const isIamError = err.message?.includes('permission') || err.message?.includes('denied') || err.message?.includes('IAM') || err.code === 7 || err.code === 'permission-denied';
+      if (isIamError) {
+        console.error("========================================= FIREBASE PERMISSION / IAM ERROR =========================================");
+        console.error(`CRITICAL: Operational permission denied on query for collection ${col} during getDocs operation after retry exhaustion.`);
+        console.error(`Raw Error Msg: ${err.message || err}`);
+        console.error(`Suggested Resolution: Please verify that your Cloud Run service account has proper GCP permissions (e.g., "Cloud Datastore User" or "Firebase Firestore Admin") assigned to your Firestore database.`);
+        console.error("===================================================================================================================");
+      } else {
+        console.error(`[FIREBASE ERROR] getDocs failed on collection ${col}:`, err.message || err);
+      }
+      throw err;
     }
-  }
-
-  if (!fbSuccess) {
-    let list = localFallback.list(col);
-    for (const c of constraints) {
-      if (c.type === 'where') {
-        const { field, op, val } = c;
-        list = list.filter((item: any) => {
-          const itemVal = item[field];
-          if (op === '==') return itemVal === val;
-          if (op === '>=') return itemVal >= val;
-          if (op === '<=') return itemVal <= val;
-          if (op === '>') return itemVal > val;
-          if (op === '<') return itemVal < val;
-          return true;
+  } else {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(`[FIREBASE ERROR] Cannot query collection ${col}: Firestore db is not initialized in production.`);
+    } else {
+      console.warn(`[FIREBASE] Database is not initialized. Using temporary local fallback for development query on ${col}`);
+      let list = localFallback.list(col);
+      for (const c of constraints) {
+        if (c.type === 'where') {
+          const { field, op, val } = c;
+          list = list.filter((item: any) => {
+            const itemVal = item[field];
+            if (op === '==') return itemVal === val;
+            if (op === '>=') return itemVal >= val;
+            if (op === '<=') return itemVal <= val;
+            if (op === '>') return itemVal > val;
+            if (op === '<') return itemVal < val;
+            return true;
+          });
+        }
+      }
+      const order = constraints.find((c: any) => c.type === 'orderBy');
+      if (order) {
+        const { field, dir } = order;
+        list.sort((a, b) => {
+          const valA = a[field] ?? 0;
+          const valB = b[field] ?? 0;
+          if (typeof valA === 'number' && typeof valB === 'number') {
+            return dir === 'desc' ? valB - valA : valA - valB;
+          }
+          return dir === 'desc' ? String(valB).localeCompare(String(valA)) : String(valA).localeCompare(String(valB));
         });
       }
+      const lim = constraints.find((c: any) => c.type === 'limit');
+      if (lim) {
+        list = list.slice(0, lim.limit);
+      }
+      docsList = list.map((item: any) => ({ id: item.id || item.user_id, data: item }));
     }
-    const order = constraints.find((c: any) => c.type === 'orderBy');
-    if (order) {
-      const { field, dir } = order;
-      list.sort((a, b) => {
-        const valA = a[field] ?? 0;
-        const valB = b[field] ?? 0;
-        if (typeof valA === 'number' && typeof valB === 'number') {
-          return dir === 'desc' ? valB - valA : valA - valB;
-        }
-        return dir === 'desc' ? String(valB).localeCompare(String(valA)) : String(valA).localeCompare(String(valB));
-      });
-    }
-    const lim = constraints.find((c: any) => c.type === 'limit');
-    if (lim) {
-      list = list.slice(0, lim.limit);
-    }
-    docsList = list.map((item: any) => ({ id: item.id || item.user_id, data: item }));
   }
 
   return {
@@ -214,14 +314,37 @@ async function getDocs(queryRef: any) {
 
 async function updateDoc(docRef: any, data: any) {
   const { col, id } = docRef;
+  const pathStr = `${col}/${id}`;
   if (db) {
     try {
-      await db.collection(col).doc(id).update(data);
+      await runWithRetry('updateDoc', pathStr, async () => {
+        await db.collection(col).doc(id).update(data);
+      });
+      if (process.env.NODE_ENV !== "production") {
+        localFallback.set(col, id, data);
+      }
+      return;
     } catch (err: any) {
-      console.warn(`[FIREBASE] Update denied on ${col}/${id} (Using robust local fallback):`, err.message || err);
+      const isIamError = err.message?.includes('permission') || err.message?.includes('denied') || err.message?.includes('IAM') || err.code === 7 || err.code === 'permission-denied';
+      if (isIamError) {
+        console.error("========================================= FIREBASE PERMISSION / IAM ERROR =========================================");
+        console.error(`CRITICAL: Operational permission denied on ${pathStr} during updateDoc operation after retry exhaustion.`);
+        console.error(`Raw Error Msg: ${err.message || err}`);
+        console.error(`Suggested Resolution: Please verify that your Cloud Run service account has proper GCP permissions (e.g., "Cloud Datastore User" or "Firebase Firestore Admin") assigned to your Firestore database.`);
+        console.error("===================================================================================================================");
+      } else {
+        console.error(`[FIREBASE ERROR] updateDoc failed on ${pathStr}:`, err.message || err);
+      }
+      throw err;
+    }
+  } else {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(`[FIREBASE ERROR] Cannot update ${pathStr}: Firestore db is not initialized in production.`);
+    } else {
+      console.warn(`[FIREBASE] Database is not initialized. Using temporary local fallback for development update on ${col}/${id}`);
+      localFallback.set(col, id, data);
     }
   }
-  localFallback.set(col, id, data);
 }
 
 function collection(db: any, path: string) {
@@ -246,16 +369,39 @@ function query(baseQuery: any, ...constraints: any[]) {
 
 async function addDoc(colRef: any, data: any) {
   const { col } = colRef;
+  const pathStr = `col/${col}`;
   const autoId = `doc_${col}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
   if (db) {
     try {
-      await db.collection(col).add(data);
+      const res = await runWithRetry('addDoc', pathStr, async () => {
+        return await db.collection(col).add(data);
+      });
+      if (process.env.NODE_ENV !== "production") {
+        localFallback.set(col, res.id, data);
+      }
+      return { id: res.id };
     } catch (err: any) {
-      console.warn(`[FIREBASE] Add denied on ${col} (Using robust local fallback):`, err.message || err);
+      const isIamError = err.message?.includes('permission') || err.message?.includes('denied') || err.message?.includes('IAM') || err.code === 7 || err.code === 'permission-denied';
+      if (isIamError) {
+        console.error("========================================= FIREBASE PERMISSION / IAM ERROR =========================================");
+        console.error(`CRITICAL: Operational permission denied on collection ${col} during addDoc operation after retry exhaustion.`);
+        console.error(`Raw Error Msg: ${err.message || err}`);
+        console.error(`Suggested Resolution: Please verify that your Cloud Run service account has proper GCP permissions (e.g., "Cloud Datastore User" or "Firebase Firestore Admin") assigned to your Firestore database.`);
+        console.error("===================================================================================================================");
+      } else {
+        console.error(`[FIREBASE ERROR] addDoc failed on collection ${col}:`, err.message || err);
+      }
+      throw err;
+    }
+  } else {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(`[FIREBASE ERROR] Cannot add document to collection ${col}: Firestore db is not initialized in production.`);
+    } else {
+      console.warn(`[FIREBASE] Database is not initialized. Using temporary local fallback for development add on ${col}`);
+      localFallback.set(col, autoId, data);
+      return { id: autoId };
     }
   }
-  localFallback.set(col, autoId, data);
-  return { id: autoId };
 }
 
 
@@ -282,13 +428,21 @@ function verifyTelegramWebAppData(initData: string, botToken: string): { success
       return { success: false, error: "Missing hash or user parameter", isSandbox: true };
     }
 
+    const isProd = process.env.NODE_ENV === "production" || process.env.STRICT_PROD_AUTH === "true";
+
     // Support safe sandbox/mock preview sessions for web browser access or testing
     if (hash === "mock_demo_mode_hash") {
+      if (isProd) {
+        return { success: false, error: "Mock authentication bypass is strictly disabled in production mode.", isSandbox: true };
+      }
       const user = JSON.parse(userString);
       return { success: true, data: { user, startParam: params.get('start_param') || "" }, isSandbox: true };
     }
 
     if (!botToken) {
+      if (isProd) {
+        return { success: false, error: "Production mode requires a valid Telegram Bot Token.", isSandbox: true };
+      }
       // Allow sandbox validation if bot token is not configured on the server
       const user = JSON.parse(userString);
       return { success: true, data: { user, startParam: params.get('start_param') || "" }, isSandbox: true };
@@ -313,31 +467,60 @@ function verifyTelegramWebAppData(initData: string, botToken: string): { success
   }
 }
 
+const balanceCache = new Map<string, { balance: number; timestamp: number }>();
+const CACHE_TTL_MS = 60 * 1000; // 1 minute cache
+
 // --- TON API JETTON BALANCE RETRIEVER ---
 async function fetchMargBalance(walletAddress: string): Promise<number> {
   if (!walletAddress) return 0;
+
+  const now = Date.now();
+  const cached = balanceCache.get(walletAddress.toLowerCase());
+  if (cached && now - cached.timestamp < CACHE_TTL_MS) {
+    console.log(`[BALANCE CACHE] Returning cached MARG balance for ${walletAddress}: ${cached.balance}`);
+    return cached.balance;
+  }
+
   try {
+    const headers: Record<string, string> = {
+      "Accept": "application/json"
+    };
+    if (process.env.TONAPI_API_KEY) {
+      headers["Authorization"] = `Bearer ${process.env.TONAPI_API_KEY}`;
+    }
+
     // Standard TonAPI accounts balance fetch
     const response = await fetch(`https://tonapi.io/v2/accounts/${walletAddress}/jettons`, {
-      headers: { "Accept": "application/json" }
+      headers
     });
+    
+    if (response.status === 403) {
+      throw new Error("TonAPI Error 403: Forbidden - Ensure TONAPI_API_KEY is correct and has access permission.");
+    }
+    if (response.status === 429) {
+      throw new Error("TonAPI Error 429: Too Many Requests - Query limit reached. Please configure or update TONAPI_API_KEY.");
+    }
     if (!response.ok) {
       throw new Error(`TonAPI status error: ${response.status}`);
     }
+
     const data = await response.json();
     const balanceItem = data.balances?.find((b: any) => 
       b.jetton?.address?.toLowerCase() === JETTON_MASTER_ADDRESS.toLowerCase()
     );
 
+    let balanceNum = 0;
     if (balanceItem) {
       const decimals = balanceItem.jetton?.decimals || 9;
       const rawBalance = parseFloat(balanceItem.balance);
-      return rawBalance / Math.pow(10, decimals);
+      balanceNum = rawBalance / Math.pow(10, decimals);
     }
-    return 0;
-  } catch (error) {
-    console.error(`Error querying TON Jetton Balance for ${walletAddress}:`, error);
-    return 0;
+
+    balanceCache.set(walletAddress.toLowerCase(), { balance: balanceNum, timestamp: now });
+    return balanceNum;
+  } catch (error: any) {
+    console.error(`Error querying TON Jetton Balance for ${walletAddress}:`, error.message || error);
+    throw error;
   }
 }
 
@@ -546,11 +729,15 @@ app.post('/api/user/init', async (req, res) => {
 
     // Refresh live MARG Token jetton balance if wallet linked
     if (user.wallet_address) {
-      const liveMargBal = await fetchMargBalance(user.wallet_address);
-      await updateDoc(userDocRef, {
-        ton_marg_balance: liveMargBal
-      });
-      user.ton_marg_balance = liveMargBal;
+      try {
+        const liveMargBal = await fetchMargBalance(user.wallet_address);
+        await updateDoc(userDocRef, {
+          ton_marg_balance: liveMargBal
+        });
+        user.ton_marg_balance = liveMargBal;
+      } catch (err: any) {
+        console.error(`[INIT] Non-blocking balance update failed for ${user.wallet_address}:`, err.message || err);
+      }
     }
 
     // Fetch user locks
@@ -603,8 +790,16 @@ app.post('/api/user/connect-wallet', requireTelegramAuth, async (req: any, res) 
       return res.status(404).json({ error: "User account not found" });
     }
 
-    // Fetch TON jettons
-    const liveMargBalance = await fetchMargBalance(walletAddress);
+    // Fetch TON jettons with helpful error handling if rate-limiting occurs
+    let liveMargBalance = 0;
+    try {
+      liveMargBalance = await fetchMargBalance(walletAddress);
+    } catch (err: any) {
+      console.error("[CONNECT] Balance verification failed:", err.message || err);
+      return res.status(502).json({
+        error: `Wallet Connection Blocked: Unable to verify your MARG token balance because TonAPI is currently rate-limiting queries (${err.message || 'Node query timeout'}). Please retry in a few moments.`
+      });
+    }
 
     await updateDoc(userDocRef, {
       wallet_address: walletAddress,
@@ -670,10 +865,30 @@ app.post('/api/user/lock', requireTelegramAuth, async (req: any, res) => {
       return res.status(400).json({ error: "A live TON wallet must be connected to pledge on-chain MARG token locks." });
     }
 
-    const liveOnChainMarg = await fetchMargBalance(user.wallet_address);
-    if (liveOnChainMarg < amount) {
+    // Query existing active locks to prevent duplicate locks on the same wallet balance (double-locking)
+    const locksQueryBefore = query(collection(db, 'locks'), where('user_id', '==', telegramUserId));
+    const rawDocsBefore = await getDocs(locksQueryBefore);
+    let activeLockedSum = 0;
+    rawDocsBefore.forEach((d) => {
+      const lockData = d.data();
+      if (lockData && lockData.status === 'active') {
+        activeLockedSum += Number(lockData.amount || 0);
+      }
+    });
+
+    const totalProposedLocked = activeLockedSum + Number(amount);
+    let liveOnChainMarg = 0;
+    try {
+      liveOnChainMarg = await fetchMargBalance(user.wallet_address);
+    } catch (err: any) {
+      console.error("[LOCK] Live on-chain balance verification failed:", err.message || err);
+      return res.status(502).json({
+        error: `Sovereign Lock Rejection: Live balance verification failed because the TON network node query is rate-limited or offline (${err.message || 'TonAPI unretrievable'}). Please try again in a few moments.`
+      });
+    }
+    if (liveOnChainMarg < totalProposedLocked) {
       return res.status(400).json({ 
-        error: `Sovereign Lock Blocked: Real on-chain MARG balance check failed. Your connected TON wallet has ${liveOnChainMarg.toLocaleString()} live MARG jettons, which is insufficient to create a lock record of ${amount.toLocaleString()} MARG.`
+        error: `Sovereign Lock Blocked: Duplicate lock prevention active. Your connected TON wallet holds ${liveOnChainMarg.toLocaleString()} MARG. You already have existing active locks for ${activeLockedSum.toLocaleString()} MARG. Adding this new lock of ${amount.toLocaleString()} MARG requires a total balance of ${totalProposedLocked.toLocaleString()} MARG. Please acquire more on-chain MARG to complete this vault position.`
       });
     }
 
