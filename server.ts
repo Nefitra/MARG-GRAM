@@ -1399,15 +1399,26 @@ app.post('/api/admin/snapshot', async (req, res) => {
 });
 
 
-// Serve tonconnect-manifest.json
+// Serve tonconnect-manifest.json dynamically with matching origin domain and CORS
 app.get('/tonconnect-manifest.json', (req, res) => {
-  const manifestPath = path.join(process.cwd(), 'assets', 'tonconnect-manifest.json');
-  if (fs.existsSync(manifestPath)) {
-    res.setHeader('Content-Type', 'application/json');
-    res.sendFile(manifestPath);
-  } else {
-    res.status(404).json({ error: "manifest not found" });
-  }
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  // Determine origin dynamically based on request context and headers
+  const protocol = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
+  const host = req.get('host');
+  const originUrl = `${protocol}://${host}`;
+
+  const manifest = {
+    url: originUrl,
+    name: "MARG Ecosystem",
+    // Clean, high-contrast absolute public image URL for the token icon
+    iconUrl: "https://ton.org/front-page-assets/images/ton_logo_dark_background.png"
+  };
+
+  res.json(manifest);
 });
 
 // Boostrap Async Block for web server serving
