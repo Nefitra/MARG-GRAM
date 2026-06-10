@@ -50,6 +50,18 @@ const POWER_TIERS: { level: HolderLevel; minPower: number }[] = [
   { level: 'Starter', minPower: 0 },
 ];
 
+const formatServerLocks = (serverLocks: any[]): LockedPosition[] => {
+  if (!Array.isArray(serverLocks)) return [];
+  return serverLocks.map((lk: any) => ({
+    amount: Number(lk.amount || 0),
+    unlockDate: lk.unlock_date || lk.unlockDate || new Date().toISOString(),
+    durationMonths: lk.duration_days ? Math.round(lk.duration_days / 30) : (lk.durationMonths || 6),
+    multiplier: Number(lk.multiplier || 1),
+    powerYield: lk.powerYield || Math.round((lk.amount || 0) * (lk.multiplier || 1)),
+    active: lk.status === 'active' || lk.active === true
+  }));
+};
+
 export default function App() {
   const [tonConnectUI] = useTonConnectUI();
   const tonAddress = useTonAddress();
@@ -131,7 +143,7 @@ export default function App() {
               mysteryBoxesOwned: resData.user.mystery_boxes_owned ?? 3,
               openedBoxesCount: resData.user.opened_boxes_count || 0,
               lastClaimDate: resData.user.last_claim_date || null,
-              locks: resData.locks || [],
+              locks: formatServerLocks(resData.locks),
               empireCreated: (resData.user.referral_count_l1 || 0) > 0,
               rank: 1420,
               claimedMilestones: resData.user.claimed_milestones || [],
@@ -174,16 +186,23 @@ export default function App() {
           walletAddress: tonAddress
         })
       })
-      .then(res => res.json())
+      .then(res => {
+        if (res.status === 404) {
+          console.warn("Profile missing during connect-wallet, re-initializing...");
+          window.location.reload();
+          return null;
+        }
+        return res.json();
+      })
       .then(data => {
-        if (data.success) {
+        if (data && data.success) {
           setState(prev => ({
             ...prev,
             balance: data.user.ton_marg_balance,
             lockedBalance: data.stats.totalLockedAmount,
             holderPower: data.stats.holderPower,
             level: data.stats.level,
-            locks: data.locks
+            locks: formatServerLocks(data.locks)
           }));
         }
       })
@@ -289,22 +308,13 @@ export default function App() {
         return;
       }
 
-      const formattedLocks = data.locks.map((lk: any) => ({
-        amount: lk.amount,
-        unlockDate: lk.unlock_date,
-        durationMonths: Math.round(lk.duration_days / 30),
-        multiplier: lk.multiplier,
-        powerYield: Math.round(lk.amount * lk.multiplier),
-        active: lk.status === 'active'
-      }));
-
       setState(prev => ({
         ...prev,
         balance: data.user.balance,
         lockedBalance: data.user.locked_balance,
         holderPower: data.stats.holderPower,
         level: data.stats.level,
-        locks: formattedLocks
+        locks: formatServerLocks(data.locks)
       }));
 
     } catch (err) {
@@ -329,15 +339,6 @@ export default function App() {
         return;
       }
 
-      const formattedLocks = data.locks.map((lk: any) => ({
-        amount: lk.amount,
-        unlockDate: lk.unlock_date,
-        durationMonths: Math.round(lk.duration_days / 30),
-        multiplier: lk.multiplier,
-        powerYield: Math.round(lk.amount * lk.multiplier),
-        active: lk.status === 'active'
-      }));
-
       setState(prev => ({
         ...prev,
         balance: data.user.balance,
@@ -345,7 +346,7 @@ export default function App() {
         openedBoxesCount: data.user.opened_boxes_count,
         holderPower: data.stats.holderPower,
         level: data.stats.level,
-        locks: formattedLocks
+        locks: formatServerLocks(data.locks)
       }));
 
       alert(`Orbital container opened! Prize Uncovered: +${data.prizeAmount.toLocaleString()} ${data.prizeType === 'balance' ? 'Liquid MARG Reserve' : 'Permanent Multiplier Power'}`);

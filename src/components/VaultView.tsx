@@ -5,7 +5,8 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShieldAlert, Cpu, Lock, Unlock, Zap, Clock, Key, Award, AlertCircle } from 'lucide-react';
+import { Cpu, Lock, Zap, Clock, Key, Award, AlertCircle, Wallet } from 'lucide-react';
+import { useTonAddress, useTonConnectUI } from '@tonconnect/ui-react';
 import { LockedPosition } from '../types';
 
 interface VaultViewProps {
@@ -15,11 +16,52 @@ interface VaultViewProps {
 }
 
 export default function VaultView({ balance, locks, onLock }: VaultViewProps) {
+  const tonAddress = useTonAddress();
+  const [tonConnectUI] = useTonConnectUI();
   const [amount, setAmount] = useState<number>(0);
   const [duration, setDuration] = useState<number>(6); // Default 6 months
   const [lockingActive, setLockingActive] = useState(false);
   const [animationCompleted, setAnimationCompleted] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+
+  // 1. Wallet Connection check fallback UI
+  if (!tonAddress) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 text-center bg-dark-space/75 border border-white/5 rounded-3xl w-full max-w-[480px] mx-auto min-h-[300px]">
+        <div className="p-4 rounded-full bg-violet-950/40 border border-violet-500/20 text-[#c084fc] mb-4">
+          <Wallet className="w-8 h-8 animate-pulse" />
+        </div>
+        <h3 className="text-sm font-display font-bold text-white mb-2 uppercase tracking-wide">Wallet Disconnected</h3>
+        <p className="text-[12px] font-mono text-purple-300 max-w-[280px] mb-6 leading-relaxed">
+          Connect your TON wallet to use Vault
+        </p>
+        <button
+          onClick={() => tonConnectUI.openModal()}
+          className="py-3 px-6 rounded-xl font-display font-black text-xs uppercase tracking-wider bg-purple-600 hover:bg-purple-500 text-white border border-purple-400/40 shadow-[0_0_15px_rgba(168,85,247,0.35)] transition-all cursor-pointer"
+        >
+          Connect Wallet
+        </button>
+      </div>
+    );
+  }
+
+  // 2. Verified Balance Check fallback UI
+  if (balance === undefined || balance === null) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 text-center bg-dark-space/75 border border-white/5 rounded-3xl w-full max-w-[480px] mx-auto min-h-[300px]">
+        <div className="p-4 rounded-full bg-red-950/40 border border-red-500/20 text-red-400 mb-4 animate-bounce">
+          <AlertCircle className="w-8 h-8" />
+        </div>
+        <h3 className="text-sm font-display font-bold text-white mb-2 uppercase tracking-wide">Verification Failure</h3>
+        <p className="text-[12px] font-mono text-red-300 max-w-[280px] leading-relaxed">
+          Unable to verify MARG balance. Please try again later.
+        </p>
+      </div>
+    );
+  }
+
+  const safeBalance = typeof balance === 'number' && !isNaN(balance) ? balance : 0;
+  const safeLocks = Array.isArray(locks) ? locks : [];
 
   // Duration Options and their corresponding multiplier values
   const durationPresets = [
@@ -34,7 +76,7 @@ export default function VaultView({ balance, locks, onLock }: VaultViewProps) {
 
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseFloat(e.target.value);
-    setAmount(val);
+    setAmount(isNaN(val) ? 0 : val);
     setErrorMessage('');
   };
 
@@ -43,8 +85,8 @@ export default function VaultView({ balance, locks, onLock }: VaultViewProps) {
       setErrorMessage('Specify an amount larger than zero');
       return;
     }
-    if (amount > balance) {
-      setErrorMessage(`Insufficient wallet balance. You have ${balance} MARG`);
+    if (amount > safeBalance) {
+      setErrorMessage(`Insufficient wallet balance. You have ${safeBalance.toLocaleString()} MARG`);
       return;
     }
 
@@ -161,10 +203,10 @@ export default function VaultView({ balance, locks, onLock }: VaultViewProps) {
           <div className="flex justify-between items-center text-xs font-mono text-purple-300">
             <span>LOCK QUANTITY</span>
             <span 
-              onClick={() => setAmount(balance)}
+              onClick={() => setAmount(safeBalance)}
               className="cursor-pointer hover:text-white transition-colors underline"
             >
-              Max: {balance.toLocaleString()} MARG
+              Max: {safeBalance.toLocaleString()} MARG
             </span>
           </div>
 
@@ -187,8 +229,8 @@ export default function VaultView({ balance, locks, onLock }: VaultViewProps) {
             <input
               type="range"
               min="0"
-              max={balance}
-              step={Math.ceil(balance / 50 || 1)}
+              max={safeBalance}
+              step={Math.ceil(safeBalance / 50 || 1)}
               value={amount}
               onChange={handleSliderChange}
               className="w-full accent-[#c084fc] bg-violet-950/20 cursor-pointer h-1.5 rounded-lg border-none"
@@ -260,38 +302,54 @@ export default function VaultView({ balance, locks, onLock }: VaultViewProps) {
       {/* Historic locks List */}
       <div className="p-6 rounded-3xl bg-dark-space/75 border border-white/5">
         <h4 className="text-xs font-mono text-purple-300 tracking-wider uppercase mb-4 flex items-center gap-1.5">
-          <Key className="w-4 h-4" /> Locked Vault Securities ({locks.length})
+          <Key className="w-4 h-4" /> Locked Vault Securities ({safeLocks.length})
         </h4>
 
-        {locks.length === 0 ? (
+        {safeLocks.length === 0 ? (
           <div className="text-center py-6 border border-dashed border-white/5 rounded-2xl text-xs text-white/40 font-mono">
             No secure assets currently locked inside the vault.
           </div>
         ) : (
           <div className="flex flex-col gap-2.5">
-            {locks.map((lock, index) => (
-              <div 
-                key={index}
-                className="p-3.5 rounded-2xl bg-black/45 hover:bg-black/60 border border-white/5 flex items-center justify-between transition-all"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-xl bg-violet-950/40 text-purple-400 border border-purple-900/40">
-                    <Lock className="w-4 h-4" />
+            {safeLocks.map((lock, index) => {
+              const lockAmount = typeof lock?.amount === 'number' ? lock.amount : 0;
+              const multiplier = typeof lock?.multiplier === 'number' ? lock.multiplier : 1;
+              const powerYield = typeof lock?.powerYield === 'number' ? lock.powerYield : Math.round(lockAmount * multiplier);
+              let unlockDateStr = "Locked";
+              try {
+                if (lock?.unlockDate) {
+                  const dateObj = new Date(lock.unlockDate);
+                  if (!isNaN(dateObj.getTime())) {
+                    unlockDateStr = dateObj.toLocaleDateString();
+                  }
+                }
+              } catch (e) {
+                // Ignore parsing errors and keep default
+              }
+              return (
+                <div 
+                  key={index}
+                  className="p-3.5 rounded-2xl bg-black/45 hover:bg-black/60 border border-white/5 flex items-center justify-between transition-all"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-xl bg-violet-950/40 text-purple-400 border border-purple-900/40">
+                      <Lock className="w-4 h-4" />
+                    </div>
+                    <div className="text-left">
+                      <span className="block text-xs font-semibold text-white">{lockAmount.toLocaleString()} MARG</span>
+                      <span className="block text-[10px] font-mono text-purple-400">Unlock: {unlockDateStr}</span>
+                    </div>
                   </div>
-                  <div className="text-left">
-                    <span className="block text-xs font-semibold text-white">{lock.amount.toLocaleString()} MARG</span>
-                    <span className="block text-[10px] font-mono text-purple-400">Unlock: {new Date(lock.unlockDate).toLocaleDateString()}</span>
-                  </div>
-                </div>
 
-                <div className="text-right flex flex-col items-end">
-                  <span className="text-xs font-display font-black text-purple-400">+{lock.powerYield.toLocaleString()} POWER</span>
-                  <span className="text-[9px] font-mono bg-indigo-950/50 text-indigo-300 px-1.5 py-0.5 rounded uppercase mt-1">
-                    {lock.multiplier}x locked
-                  </span>
+                  <div className="text-right flex flex-col items-end">
+                    <span className="text-xs font-display font-black text-purple-400">+{powerYield.toLocaleString()} POWER</span>
+                    <span className="text-[9px] font-mono bg-indigo-950/50 text-indigo-300 px-1.5 py-0.5 rounded uppercase mt-1">
+                      {multiplier}x locked
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
