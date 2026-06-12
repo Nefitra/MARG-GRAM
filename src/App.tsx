@@ -24,6 +24,7 @@ import EmpireView from './components/EmpireView';
 import BuyView from './components/BuyView';
 import LeaderboardView from './components/LeaderboardView';
 import UserActivityTrends from './components/UserActivityTrends';
+import GrowthView from './components/GrowthView';
 import { UserState, HolderLevel, LockedPosition } from './types';
 
 const generateInitialEarningHistory = () => {
@@ -188,7 +189,7 @@ export default function App() {
     return DEFAULT_STATE;
   });
 
-  const [activeTab, setActiveTab] = useState<'home' | 'core' | 'vault' | 'loot' | 'empire' | 'trade' | 'leaderboard'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'core' | 'vault' | 'loot' | 'empire' | 'trade' | 'leaderboard' | 'growth'>('home');
   const [copiedLink, setCopiedLink] = useState(false);
   const [activeClaimAnimation, setActiveClaimAnimation] = useState(false);
   const [claimText, setClaimText] = useState('');
@@ -986,6 +987,7 @@ export default function App() {
 
         {[
           { id: 'home', label: 'Ecosystem', icon: Compass },
+          { id: 'growth', label: 'Growth Engine', icon: Sparkles },
           { id: 'core', label: 'Level', icon: Zap },
           { id: 'vault', label: 'Vaults', icon: Lock },
           { id: 'loot', label: 'Rewards', icon: Inbox },
@@ -1255,6 +1257,21 @@ export default function App() {
                 userBalance={state.realMargBalance} 
                 tonBalance={state.tonBalance}
                 onConfirmBuy={handleConfirmBuy} 
+              />
+            </motion.div>
+          )}
+
+          {activeTab === 'growth' && (
+            <motion.div
+              key="view-growth"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+            >
+              <GrowthView 
+                userBalance={state.balance} 
+                userPower={state.holderPower}
+                telegramInitData={(window as any).TELEGRAM_INIT_DATA || localStorage.getItem('MARG_ECOSYSTEM_INIT_DATA') || ""}
               />
             </motion.div>
           )}

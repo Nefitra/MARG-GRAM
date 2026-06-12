@@ -38,7 +38,11 @@ class LocalDbFallback {
     wallet_snapshots: {},
     rewards: {},
     locks: {},
-    leaderboard: {}
+    leaderboard: {},
+    missions: {},
+    user_missions: {},
+    xp_history: {},
+    campaigns: {}
   };
   private filePath = path.join(process.cwd(), '.local-db-fallback.json');
 
@@ -628,6 +632,211 @@ async function requireTelegramAuth(req: any, res: any, next: any) {
   next();
 }
 
+// --- MARG GROWTH ENGINE UTILITIES & CONFIGURATIONS ---
+const ADMIN_TELEGRAM_IDS = [
+  "beskerboris@gmail.com",
+  "14201337", // Default sandbox telegram ID
+  "711279376658" // From user data
+];
+
+const LEVEL_THRESHOLDS = [
+  { minXp: 0, title: "Explorer", level: 1 },
+  { minXp: 500, title: "Supporter", level: 2 },
+  { minXp: 1500, title: "Holder", level: 3 },
+  { minXp: 3000, title: "Raider", level: 4 },
+  { minXp: 7500, title: "Builder", level: 5 },
+  { minXp: 15000, title: "Whale", level: 6 },
+  { minXp: 30000, title: "Legend", level: 7 }
+];
+
+function getLevelAndTitle(xp: number) {
+  let matched = LEVEL_THRESHOLDS[0];
+  for (let i = LEVEL_THRESHOLDS.length - 1; i >= 0; i--) {
+    if (xp >= LEVEL_THRESHOLDS[i].minXp) {
+      matched = LEVEL_THRESHOLDS[i];
+      break;
+    }
+  }
+  const currentIndex = LEVEL_THRESHOLDS.findIndex(l => l.level === matched.level);
+  const next = LEVEL_THRESHOLDS[currentIndex + 1] || null;
+  return {
+    level: matched.level,
+    title: matched.title,
+    nextXp: next ? next.minXp : matched.minXp,
+    prevXp: matched.minXp
+  };
+}
+
+const DEFAULT_MISSIONS_PRESETS = [
+  { mission_id: "tg_connect", title: "Connect Telegram Account", description: "Verify your secure Telegram signature and link dashboard session", type: "onboarding", xp_reward: 50, is_daily: false, is_active: true, validation_type: "auto", external_url: "" },
+  { mission_id: "ton_wallet_connect", title: "Connect TON Wallet", description: "Link your active TON ledger wallet securely via TON Connect", type: "onboarding", xp_reward: 100, is_daily: false, is_active: true, validation_type: "wallet", external_url: "" },
+  { mission_id: "join_tg_group", title: "Join Telegram Group", description: "Become a part of the official MARG community chat", type: "onboarding", xp_reward: 50, is_daily: false, is_active: true, validation_type: "social", external_url: "https://t.me/marg_ecosystem" },
+  { mission_id: "follow_x", title: "Follow MARG on X", description: "Keep track of announcements on the official Twitter/X", type: "onboarding", xp_reward: 50, is_daily: false, is_active: true, validation_type: "social", external_url: "https://x.com/marg_ecosystem" },
+  { mission_id: "open_blum", title: "Open BLUM Trading", description: "Explore the live MARG/TON trading pairs inside the BLUM application", type: "onboarding", xp_reward: 50, is_daily: false, is_active: true, validation_type: "visit", external_url: "https://t.me/blum/app" },
+  { mission_id: "repost_twitter", title: "Repost Official MARG Tweet", description: "Retweet/Repost the latest official announcement to spread network energy", type: "social", xp_reward: 75, is_daily: false, is_active: true, validation_type: "social", external_url: "https://x.com/marg_ecosystem/status/12345" },
+  { mission_id: "comment_twitter", title: "Comment Under Pinned Post", description: "Express your support and share comments on our main X announcement", type: "social", xp_reward: 50, is_daily: false, is_active: true, validation_type: "social", external_url: "https://x.com/marg_ecosystem" },
+  { mission_id: "invite_friends_group", title: "Invite Friends to Telegram", description: "Welcome high-power contacts into the central group network chat", type: "social", xp_reward: 100, is_daily: false, is_active: true, validation_type: "social", external_url: "" },
+  { mission_id: "share_ref_link", title: "Share Referral Link", description: "Publish or forward your unique telegram referral connection path to friends", type: "social", xp_reward: 50, is_daily: false, is_active: true, validation_type: "visit", external_url: "https://t.me/share/url?url=https://t.me/marg_bot" },
+  { mission_id: "buy_marg_blum", title: "Buy MARG on BLUM", description: "Verify active accumulation of MARG jetton tokens on BLUM dex", type: "token", xp_reward: 200, is_daily: false, is_active: true, validation_type: "verify_purchase", external_url: "" },
+  { mission_id: "hold_marg_24h", title: "Hold MARG Multi-Day", description: "Hold at least 500 MARG tokens in your connected wallet", type: "token", xp_reward: 100, is_daily: false, is_active: true, validation_type: "verify_balance", external_url: "" },
+  { mission_id: "balance_milestone", title: "Reach Balance Milestone", description: "Unlock the premier hoarder status by holding at least 5,000 MARG", type: "token", xp_reward: 300, is_daily: false, is_active: true, validation_type: "verify_balance", external_url: "" },
+  { mission_id: "stake_lock_marg", title: "Stake/Lock in Vault", description: "Lock MARG tokens in one of the active yield boosting vaults for >30 days", type: "token", xp_reward: 300, is_daily: false, is_active: true, validation_type: "verify_vault", external_url: "" },
+  { mission_id: "daily_checkin", title: "Daily Check-in", description: "Establish daily sync with the node to maintain points momentum", type: "daily", xp_reward: 25, is_daily: true, is_active: true, validation_type: "checkin", external_url: "" },
+  { mission_id: "daily_app_open", title: "Inspect MARG Node", description: "Access the terminal daily to audit logs and verify local statistics", type: "daily", xp_reward: 15, is_daily: true, is_active: true, validation_type: "auto", external_url: "" },
+  { mission_id: "daily_visit_blum", title: "Visit BLUM Exchange Hub", description: "Interact with the market maker nodes and monitor fluid live ticker charts", type: "daily", xp_reward: 15, is_daily: true, is_active: true, validation_type: "visit", external_url: "https://t.me/blum/app" }
+];
+
+const DEFAULT_CAMPAIGNS_PRESETS = [
+  {
+    campaign_id: "marg_pioneer",
+    title: "MARG Pioneer Campaign",
+    description: "Launch celebration for the first 100 active community members of the MARG Ecosystem. To qualify: verify wallet connection, join our Telegram chat, and hold any amount of MARG tokens.",
+    start_date: "2026-06-12T00:00:00Z",
+    end_date: "2026-07-12T23:59:59Z",
+    status: "active",
+    prize_pool: "50 TON",
+    rules: "1. Connect active TON wallet\n2. Open growth module\n3. Engage community TG chat\n4. Top 1: 10 TON, Top 2: 5 TON, Top 3: 3 TON, 10 random qualifying members: 1 TON each."
+  }
+];
+
+async function seedDefaultMissionsAndCampaigns() {
+  for (const mission of DEFAULT_MISSIONS_PRESETS) {
+    try {
+      const mRef = doc(db, 'missions', mission.mission_id);
+      const mSnap = await getDoc(mRef);
+      if (!mSnap.exists()) {
+        await setDoc(mRef, {
+          ...mission,
+          created_at: new Date().toISOString()
+        });
+      }
+    } catch (err) {
+      console.error(`[SEED ERROR] Failed seeding mission ${mission.mission_id}:`, err);
+    }
+  }
+  for (const campaign of DEFAULT_CAMPAIGNS_PRESETS) {
+    try {
+      const cRef = doc(db, 'campaigns', campaign.campaign_id);
+      const cSnap = await getDoc(cRef);
+      if (!cSnap.exists()) {
+        await setDoc(cRef, campaign);
+      }
+    } catch (err) {
+      console.error(`[SEED ERROR] Failed seeding campaign ${campaign.campaign_id}:`, err);
+    }
+  }
+}
+
+// Automatically trigger background seed execution lazily
+setTimeout(() => {
+  seedDefaultMissionsAndCampaigns().then(() => {
+    console.log("[GROWTH SEED] Finished seeding default growth missions and campaign records successfully.");
+  }).catch(e => console.error("[GROWTH SEED ERROR]", e));
+}, 3000);
+
+async function awardUserXp(userId: string, amount: number, reason: string, source: string) {
+  if (amount <= 0) return;
+  const userDocRef = doc(db, 'users', userId);
+  const userSnap = await getDoc(userDocRef);
+  if (!userSnap.exists()) return;
+  const user = userSnap.data();
+
+  const currentXp = Number(user.total_xp || 0);
+  const nextXp = currentXp + amount;
+  const currentWeeklyXp = Number(user.weekly_xp || 0);
+  const nextWeeklyXp = currentWeeklyXp + amount;
+
+  const currentLevelInfo = getLevelAndTitle(currentXp);
+  const nextLevelInfo = getLevelAndTitle(nextXp);
+
+  const updatePayload: any = {
+    total_xp: nextXp,
+    weekly_xp: nextWeeklyXp,
+    level: nextLevelInfo.level
+  };
+
+  await updateDoc(userDocRef, updatePayload);
+
+  // Write to xp_history
+  const xpHistoryId = `xp_${userId}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+  await setDoc(doc(db, 'xp_history', xpHistoryId), {
+    id: xpHistoryId,
+    user_id: userId,
+    amount,
+    reason,
+    source,
+    timestamp: new Date().toISOString()
+  });
+
+  // Sync leaderboard
+  try {
+    const locksQuery = query(collection(db, 'locks'), where('user_id', '==', userId));
+    const locksDocs = await getDocs(locksQuery);
+    const locksList: any[] = [];
+    locksDocs.forEach((d) => locksList.push(d.data()));
+    const stats = calculateHolderStats({ ...user, ...updatePayload }, locksList);
+
+    await setDoc(doc(db, 'leaderboard', userId), {
+      user_id: userId,
+      username: user.username,
+      first_name: user.first_name,
+      holder_power: stats.holderPower,
+      level: stats.level,
+      locked_amount: stats.totalLockedAmount,
+      referral_count: (user.referral_count_l1 || 0) + (user.referral_count_l2 || 0),
+      referral_power: (user.referral_count_l1 || 0) * 1500 + (user.referral_count_l2 || 0) * 500,
+      total_xp: nextXp,
+      weekly_xp: nextWeeklyXp,
+      growth_level: nextLevelInfo.level,
+      updated_at: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error(`[XP LEADERBOARD SYNC ERROR] Failed for ${userId}:`, err);
+  }
+
+  return {
+    success: true,
+    awarded: amount,
+    oldXp: currentXp,
+    newXp: nextXp,
+    oldLevel: currentLevelInfo.level,
+    newLevel: nextLevelInfo.level,
+    levelUp: nextLevelInfo.level > currentLevelInfo.level
+  };
+}
+
+async function requireAdminTelegramAuth(req: any, res: any, next: any) {
+  const initData = req.headers['x-telegram-init-data'];
+  if (!initData) {
+    return res.status(401).json({ error: "Access denied. Signed Telegram identity session required." });
+  }
+
+  const botToken = process.env.TELEGRAM_BOT_TOKEN || "";
+  const verification = verifyTelegramWebAppData(initData, botToken);
+  if (!verification.success) {
+    return res.status(401).json({ error: "Telegram identity verification failed." });
+  }
+
+  const tgUser = verification.data.user;
+  const userIdStr = String(tgUser.id);
+
+  try {
+    const userSnap = await getDoc(doc(db, 'users', userIdStr));
+    const user = userSnap.exists() ? userSnap.data() : null;
+    
+    const isAdmin = (user && user.is_admin === true) || ADMIN_TELEGRAM_IDS.includes(userIdStr);
+    if (!isAdmin) {
+      return res.status(403).json({ error: "403 Forbidden: You do not have authorization to access administrator systems." });
+    }
+
+    req.tgUser = tgUser;
+    req.adminUser = user || { id: userIdStr, is_admin: true };
+    next();
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
 // --- ENDPOINTS ---
 
 // 1. Initialise Telegram Mini App Account and load profile
@@ -689,6 +898,9 @@ app.post('/api/user/init', async (req, res) => {
         last_claim_date: null,
         mystery_boxes_owned: 0,
         opened_boxes_count: 0,
+        total_xp: 0,
+        weekly_xp: 0,
+        level: 1,
         created_at: nowISO,
         last_login_at: nowISO
       };
@@ -707,9 +919,17 @@ app.post('/api/user/init', async (req, res) => {
         if (referrerSnap.exists()) {
           const rData = referrerSnap.data();
           const nextL1Count = (rData.referral_count_l1 || 0) + 1;
+          const currXpEarned = (rData.referral_xp_earned || 0) + 100;
           await updateDoc(referrerDocRef, {
-            referral_count_l1: nextL1Count
+            referral_count_l1: nextL1Count,
+            referral_xp_earned: currXpEarned
           });
+
+          // Award referred user 50 welcome XP
+          await awardUserXp(userIdStr, 50, "MARG Referral Welcome Bonus", "welcome");
+
+          // Award referrer 100 XP
+          await awardUserXp(referredBy, 100, `Referral Registration: @${user.username || userIdStr}`, "referral_invite");
 
           // Save Referral collection entry
           const refEntryId = `${referredBy}_${userIdStr}`;
@@ -719,7 +939,10 @@ app.post('/api/user/init', async (req, res) => {
             referred_user_id: userIdStr,
             level: 1,
             created_at: nowISO,
-            reward_status: 'claimed'
+            reward_status: 'claimed',
+            wallet_connected: false,
+            purchase_verified: false,
+            xp_awarded: 100
           });
 
           // Optional Level 2 Referrer (Who referred the referrer)
@@ -739,7 +962,10 @@ app.post('/api/user/init', async (req, res) => {
                 referred_user_id: userIdStr,
                 level: 2,
                 created_at: nowISO,
-                reward_status: 'claimed'
+                reward_status: 'claimed',
+                wallet_connected: false,
+                purchase_verified: false,
+                xp_awarded: 0
               });
             }
           }
@@ -841,6 +1067,78 @@ app.post('/api/user/connect-wallet', requireTelegramAuth, async (req: any, res) 
     // Reload entire details
     const refreshedSnap = await getDoc(userDocRef);
     const user = refreshedSnap.data();
+
+    // Growth Engine: Award XP for first wallet connection
+    const firstConnection = !userSnap.data().wallet_address;
+    if (firstConnection) {
+      try {
+        await setDoc(doc(db, 'user_missions', `um_${telegramUserId}_ton_wallet_connect`), {
+          user_id: telegramUserId,
+          mission_id: "ton_wallet_connect",
+          status: "claimed",
+          completed_at: new Date().toISOString(),
+          claimed_at: new Date().toISOString(),
+          xp_awarded: 100
+        });
+        await awardUserXp(telegramUserId, 100, "Connect TON Wallet Mission", "mission");
+
+        // Award 150 XP to referrer if referred
+        if (userSnap.data().referred_by) {
+          const referrerId = userSnap.data().referred_by;
+          const refEntryId = `${referrerId}_${telegramUserId}`;
+          const refDocRef = doc(db, 'referrals', refEntryId);
+          const refSnap = await getDoc(refDocRef);
+          
+          if (refSnap.exists() && !refSnap.data().wallet_connected) {
+            await updateDoc(refDocRef, {
+              wallet_connected: true,
+              xp_awarded: (refSnap.data().xp_awarded || 100) + 150
+            });
+            await awardUserXp(referrerId, 150, `Referral connected wallet: @${user.username || telegramUserId}`, "referral_wallet");
+            
+            const referrerDocRef = doc(db, 'users', referrerId);
+            const referrerSnap = await getDoc(referrerDocRef);
+            if (referrerSnap.exists()) {
+              const rxp = (referrerSnap.data().referral_xp_earned || 0) + 150;
+              await updateDoc(referrerDocRef, {
+                referral_xp_earned: rxp
+              });
+            }
+          }
+        }
+      } catch (growthErr: any) {
+        console.error("[GROWTH XP] Failed during wallet connect reward allocation:", growthErr.message || growthErr);
+      }
+    }
+
+    // Growth Engine: Verify and award 300 XP to referrer for token purchase if user has balance
+    if (balances.margBalance > 0 && userSnap.data().referred_by) {
+      try {
+        const referrerId = userSnap.data().referred_by;
+        const refEntryId = `${referrerId}_${telegramUserId}`;
+        const refDocRef = doc(db, 'referrals', refEntryId);
+        const refSnap = await getDoc(refDocRef);
+        
+        if (refSnap.exists() && !refSnap.data().purchase_verified) {
+          await updateDoc(refDocRef, {
+            purchase_verified: true,
+            xp_awarded: (refSnap.data().xp_awarded || 100) + 300
+          });
+          await awardUserXp(referrerId, 300, `Referral bought MARG: @${user.username || telegramUserId}`, "referral_purchase");
+          
+          const referrerDocRef = doc(db, 'users', referrerId);
+          const referrerSnap = await getDoc(referrerDocRef);
+          if (referrerSnap.exists()) {
+            const rxp = (referrerSnap.data().referral_xp_earned || 0) + 300;
+            await updateDoc(referrerDocRef, {
+              referral_xp_earned: rxp
+            });
+          }
+        }
+      } catch (platErr: any) {
+        console.error("[GROWTH XP] Referral purchase verification failed:", platErr.message || platErr);
+      }
+    }
 
     const locksQuery = query(collection(db, 'locks'), where('user_id', '==', telegramUserId));
     const locksDocs = await getDocs(locksQuery);
@@ -1206,7 +1504,965 @@ app.post('/api/user/mystery-box/buy', requireTelegramAuth, async (req: any, res)
   }
 });
 
-// 7. Dynamic Leaderboard API
+// --- MARG GROWTH ENGINE DEVELOPER REST APIS ---
+
+// 1. GET User Growth dashboard details
+app.get('/api/growth/me', requireTelegramAuth, async (req: any, res) => {
+  const telegramUserId = String(req.tgUser.id);
+  try {
+    const userDocRef = doc(db, 'users', telegramUserId);
+    const userSnap = await getDoc(userDocRef);
+    if (!userSnap.exists()) {
+      return res.status(404).json({ error: "User profile not found." });
+    }
+
+    const user = userSnap.data();
+    const totalXp = Number(user.total_xp || 0);
+    const weeklyXp = Number(user.weekly_xp || 0);
+    const levelInfo = getLevelAndTitle(totalXp);
+
+    // Calculate completed task count
+    const completedQuery = query(collection(db, 'user_missions'), where('user_id', '==', telegramUserId));
+    const completedDocs = await getDocs(completedQuery);
+    let completedCount = 0;
+    const completedIds: string[] = [];
+    completedDocs.forEach((d) => {
+      const data = d.data();
+      if (data.status === 'claimed' || data.status === 'completed') {
+        completedCount++;
+        completedIds.push(data.mission_id);
+      }
+    });
+
+    // Fetch active missions from database
+    const missionsRef = collection(db, 'missions');
+    const missionsDocs = await getDocs(missionsRef);
+    let activeMissionsList: any[] = [];
+    missionsDocs.forEach((d) => activeMissionsList.push(d.data()));
+    if (activeMissionsList.length === 0) {
+      activeMissionsList = DEFAULT_MISSIONS_PRESETS;
+    }
+    const availableCount = activeMissionsList.filter(m => m.is_active && !completedIds.includes(m.mission_id)).length;
+
+    // Get locking assets info
+    const locksQuery = query(collection(db, 'locks'), where('user_id', '==', telegramUserId));
+    const locksDocs = await getDocs(locksQuery);
+    let totalLockedAmount = 0;
+    let activeMultiplier = 0;
+    let totalLocksCount = 0;
+    locksDocs.forEach((d) => {
+      const lock = d.data();
+      if (lock.status === 'active') {
+        totalLockedAmount += (lock.amount || 0);
+        activeMultiplier = Math.max(activeMultiplier, lock.multiplier || 1);
+        totalLocksCount++;
+      }
+    });
+
+    // Referral stats
+    const totalInvited = (user.referral_count_l1 || 0) + (user.referral_count_l2 || 0);
+    const referralXpEarned = (user.referral_xp_earned || 0);
+    
+    // Determine active referrals
+    const activeRefsQuery = query(collection(db, 'referrals'), where('referrer_user_id', '==', telegramUserId));
+    const activeRefsDocs = await getDocs(activeRefsQuery);
+    let activeReferralsCount = 0;
+    let walletConnectedRefsCount = 0;
+    activeRefsDocs.forEach((d) => {
+      const r = d.data();
+      activeReferralsCount++;
+      if (r.wallet_connected) {
+        walletConnectedRefsCount++;
+      }
+    });
+
+    // Determine weekly leaderboard rank (scan users sorting by weekly_xp desc)
+    const usersQuery = collection(db, 'users');
+    const allUsersDocs = await getDocs(usersQuery);
+    const usersList: any[] = [];
+    allUsersDocs.forEach((d) => usersList.push(d.data()));
+    usersList.sort((a, b) => (b.weekly_xp || 0) - (a.weekly_xp || 0));
+    const weeklyRank = usersList.findIndex(u => String(u.id) === telegramUserId) + 1 || 1;
+
+    // Rewards info
+    const rewardsQuery = query(collection(db, 'rewards'), where('user_id', '==', telegramUserId));
+    const rewardsDocs = await getDocs(rewardsQuery);
+    let claimableRewardsCount = 0;
+    let totalClaimedAmount = 0;
+    rewardsDocs.forEach((d) => {
+      const reward = d.data();
+      if (reward.status === 'pending' || reward.status === 'approved') {
+        claimableRewardsCount++;
+      } else if (reward.status === 'paid' || reward.status === 'claimed') {
+        totalClaimedAmount += (reward.amount || 0);
+      }
+    });
+
+    const isAdmin = user.is_admin === true || ADMIN_TELEGRAM_IDS.includes(telegramUserId);
+
+    return res.json({
+      success: true,
+      growth: {
+        totalXp,
+        weeklyXp,
+        level: levelInfo.level,
+        rank: levelInfo.title,
+        nextXp: levelInfo.nextXp,
+        prevXp: levelInfo.prevXp,
+        completedTasks: completedCount,
+        availableTasks: availableCount,
+        isAdmin,
+        isBanned: user.is_banned === true,
+        referrals: {
+          totalInvited: totalInvited || activeReferralsCount,
+          active: activeReferralsCount,
+          walletConnected: walletConnectedRefsCount,
+          xpEarned: referralXpEarned,
+          rank: (user.referral_count_l1 || 0) >= 10 ? 'Sovereign' : (user.referral_count_l1 || 0) >= 5 ? 'Executor' : 'Squire',
+        },
+        wallet: {
+          connected: !!user.wallet_address,
+          address: user.wallet_address || null
+        },
+        token: {
+          balance: user.wallet_address ? (user.ton_marg_balance || 0) : (user.balance || 0),
+          virtualBalance: user.balance || 0,
+          realBalance: user.ton_marg_balance || 0
+        },
+        vault: {
+          hasActiveLock: totalLocksCount > 0,
+          totalLockedAmount,
+          activeMultiplier,
+          activeLocksCount: totalLocksCount
+        },
+        weeklyRank: weeklyRank || 1,
+        claimableRewards: claimableRewardsCount
+      }
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. POST claim Daily check-in XP points
+app.post('/api/growth/daily-checkin', requireTelegramAuth, async (req: any, res) => {
+  const telegramUserId = String(req.tgUser.id);
+  const todayStr = new Date().toISOString().split('T')[0];
+  const userDocRef = doc(db, 'users', telegramUserId);
+
+  try {
+    const userSnap = await getDoc(userDocRef);
+    if (!userSnap.exists()) {
+      return res.status(404).json({ error: "Sovereign user not registered." });
+    }
+
+    const user = userSnap.data();
+    const missionId = "daily_checkin";
+    const dailyMissionDocId = `um_${telegramUserId}_${missionId}_${todayStr}`;
+    const dmSnap = await getDoc(doc(db, 'user_missions', dailyMissionDocId));
+
+    if (dmSnap.exists()) {
+      return res.status(400).json({ error: "You have already completed your daily check-in today." });
+    }
+
+    // Save check-in completed record
+    await setDoc(doc(db, 'user_missions', dailyMissionDocId), {
+      user_id: telegramUserId,
+      mission_id: missionId,
+      status: "claimed",
+      completed_at: new Date().toISOString(),
+      claimed_at: new Date().toISOString(),
+      xp_awarded: 25
+    });
+
+    const xpResult = await awardUserXp(telegramUserId, 25, "Daily Check-in Rewards", "daily_checkin");
+
+    // Process daily streak logic
+    const lastClaimDate = user.last_claim_date;
+    const nowISO = new Date().toISOString();
+    let nextStreak = user.daily_streak || 1;
+    let streakBroken = false;
+
+    if (lastClaimDate) {
+      const lastDate = lastClaimDate.split('T')[0];
+      if (lastDate === todayStr) {
+        // already claimed
+      } else {
+        const lastMs = new Date(lastDate).getTime();
+        const todayMs = new Date(todayStr).getTime();
+        const diffDays = Math.floor((todayMs - lastMs) / (1000 * 60 * 60 * 24));
+        if (diffDays === 1) {
+          nextStreak += 1;
+        } else if (diffDays > 1) {
+          nextStreak = 1;
+          streakBroken = true;
+        }
+        await updateDoc(userDocRef, {
+          daily_streak: nextStreak,
+          last_claim_date: nowISO
+        });
+      }
+    } else {
+      await updateDoc(userDocRef, {
+        daily_streak: 1,
+        last_claim_date: nowISO
+      });
+    }
+
+    // Evaluate daily missions completeness bonus trigger (All 3 daily tasks complete)
+    const dailyMissionsList = ["daily_checkin", "daily_app_open", "daily_visit_blum"];
+    let completedCount = 0;
+    for (const mId of dailyMissionsList) {
+      const subDocId = `um_${telegramUserId}_${mId}_${todayStr}`;
+      const subSnap = await getDoc(doc(db, 'user_missions', subDocId));
+      if (subSnap.exists() || mId === "daily_checkin") {
+        completedCount++;
+      }
+    }
+
+    let dailyBonusAwarded = false;
+    if (completedCount === dailyMissionsList.length) {
+      const bonusDocId = `um_${telegramUserId}_daily_bonus_${todayStr}`;
+      const bonusSnap = await getDoc(doc(db, 'user_missions', bonusDocId));
+      if (!bonusSnap.exists()) {
+        await setDoc(doc(db, 'user_missions', bonusDocId), {
+          user_id: telegramUserId,
+          mission_id: "daily_bonus_100",
+          status: "claimed",
+          completed_at: new Date().toISOString(),
+          claimed_at: new Date().toISOString(),
+          xp_awarded: 100
+        });
+        await awardUserXp(telegramUserId, 100, "All Daily Missions Completed Bonus", "daily_bonus");
+        dailyBonusAwarded = true;
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: "Daily check-in completed successfully!",
+      xpResult,
+      streak: nextStreak,
+      streakBroken,
+      dailyBonusAwarded
+    });
+
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. GET all active growth system missions
+app.get('/api/growth/missions', requireTelegramAuth, async (req: any, res) => {
+  const telegramUserId = String(req.tgUser.id);
+  const todayStr = new Date().toISOString().split('T')[0];
+  try {
+    const missionsRef = collection(db, 'missions');
+    const missionsDocs = await getDocs(missionsRef);
+    let activeMissionsList: any[] = [];
+    missionsDocs.forEach((d) => activeMissionsList.push(d.data()));
+    if (activeMissionsList.length === 0) {
+      activeMissionsList = DEFAULT_MISSIONS_PRESETS;
+    }
+
+    // Load user completion map
+    const completedQuery = query(collection(db, 'user_missions'), where('user_id', '==', telegramUserId));
+    const completedDocs = await getDocs(completedQuery);
+    const userMissionsMap: Record<string, any> = {};
+    completedDocs.forEach((d) => {
+      const data = d.data();
+      userMissionsMap[data.mission_id] = data;
+    });
+
+    const enrichedMissions = activeMissionsList.map(mission => {
+      let userState = "not_started";
+      let completedAt = null;
+      let claimedAt = null;
+
+      if (mission.is_daily) {
+        const hasDailyDoc = Object.values(userMissionsMap).find((um: any) => um.mission_id === mission.mission_id && um.completed_at?.startsWith(todayStr));
+        if (hasDailyDoc) {
+          userState = "claimed";
+          completedAt = hasDailyDoc.completed_at;
+          claimedAt = hasDailyDoc.claimed_at;
+        }
+      } else {
+        const matchingRecord = userMissionsMap[mission.mission_id];
+        if (matchingRecord) {
+          userState = matchingRecord.status || "claimed";
+          completedAt = matchingRecord.completed_at;
+          claimedAt = matchingRecord.claimed_at;
+        }
+      }
+
+      return {
+        ...mission,
+        status: userState,
+        completedAt,
+        claimedAt
+      };
+    });
+
+    return res.json({
+      success: true,
+      missions: enrichedMissions
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. POST claim completed mission rewards
+app.post('/api/growth/missions/:missionId/claim', requireTelegramAuth, async (req: any, res) => {
+  const telegramUserId = String(req.tgUser.id);
+  const missionId = req.params.missionId;
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  try {
+    const userDocRef = doc(db, 'users', telegramUserId);
+    const userSnap = await getDoc(userDocRef);
+    if (!userSnap.exists()) {
+      return res.status(404).json({ error: "Sovereign profile not found." });
+    }
+    const user = userSnap.data();
+
+    // Fetch mission definitions (dynamic/database first, then local presets)
+    const missionRef = doc(db, 'missions', missionId);
+    let missionSnap = await getDoc(missionRef);
+    let mission: any = null;
+    if (missionSnap.exists()) {
+      mission = missionSnap.data();
+    } else {
+      mission = DEFAULT_MISSIONS_PRESETS.find(m => m.mission_id === missionId);
+    }
+
+    if (!mission) {
+      return res.status(404).json({ error: "Mission card not found." });
+    }
+
+    const userMissionDocId = mission.is_daily 
+      ? `um_${telegramUserId}_${missionId}_${todayStr}`
+      : `um_${telegramUserId}_${missionId}`;
+
+    const umRef = doc(db, 'user_missions', userMissionDocId);
+    const umSnap = await getDoc(umRef);
+    if (umSnap.exists()) {
+      return res.status(400).json({ error: "This mission task has already been completed and claimed." });
+    }
+
+    // Evaluate validation requirements on backend securely
+    let eligible = false;
+    let errorMessage = "Validation failed: Unable to verify mission parameters on-chain.";
+
+    if (mission.validation_type === "auto" || mission.validation_type === "visit" || mission.validation_type === "social") {
+      eligible = true;
+    } else if (mission.validation_type === "wallet") {
+      if (user.wallet_address) {
+        eligible = true;
+      } else {
+        errorMessage = "Validation Failed: Linked TON Web3 Wallet address is required to complete this task.";
+      }
+    } else if (mission.validation_type === "verify_balance") {
+      const minBalance = missionId === "balance_milestone" ? 5000 : 500;
+      const actualBalance = user.wallet_address ? (user.ton_marg_balance || 0) : (user.balance || 0);
+      if (actualBalance >= minBalance) {
+        eligible = true;
+      } else {
+        errorMessage = `Validation Failed: Insufficient MARG token balance. Current balance is ${actualBalance.toLocaleString()} MARG, but this mission requires holding at least ${minBalance.toLocaleString()} MARG jettons.`;
+      }
+    } else if (mission.validation_type === "verify_purchase") {
+      const actualBalance = user.wallet_address ? (user.ton_marg_balance || 0) : (user.balance || 0);
+      if (actualBalance > 0) {
+        eligible = true;
+      } else {
+        errorMessage = "Validation Failed: No active MARG jetton asset holdings detected. Accumulate on BLUM and verify again.";
+      }
+    } else if (mission.validation_type === "verify_vault") {
+      const locksQuery = query(collection(db, 'locks'), where('user_id', '==', telegramUserId));
+      const locksDocs = await getDocs(locksQuery);
+      let activeVaultCount = 0;
+      locksDocs.forEach((d) => {
+        if (d.data().status === 'active') activeVaultCount++;
+      });
+      if (activeVaultCount > 0) {
+        eligible = true;
+      } else {
+        errorMessage = "Validation Failed: Active locked vault position is required. Commit MARG tokens inside the Locker tab.";
+      }
+    } else if (mission.validation_type === "checkin") {
+      eligible = true;
+    }
+
+    if (!eligible) {
+      return res.status(400).json({ error: errorMessage });
+    }
+
+    // Save completion
+    await setDoc(umRef, {
+      user_id: telegramUserId,
+      mission_id: missionId,
+      status: "claimed",
+      completed_at: new Date().toISOString(),
+      claimed_at: new Date().toISOString(),
+      xp_awarded: mission.xp_reward
+    });
+
+    const xpResult = await awardUserXp(telegramUserId, mission.xp_reward, `Completed Mission Event: ${mission.title}`, "mission");
+
+    // All Daily Complete Bonus evaluation
+    let dailyBonusAwarded = false;
+    if (mission.is_daily) {
+      const dailyMissionsList = ["daily_checkin", "daily_app_open", "daily_visit_blum"];
+      let completedCount = 0;
+      for (const mId of dailyMissionsList) {
+        const subDocId = mId === missionId ? userMissionDocId : `um_${telegramUserId}_${mId}_${todayStr}`;
+        if (mId === missionId) {
+          completedCount++;
+        } else {
+          const subSnap = await getDoc(doc(db, 'user_missions', subDocId));
+          if (subSnap.exists()) {
+            completedCount++;
+          }
+        }
+      }
+
+      if (completedCount === dailyMissionsList.length) {
+        const bonusDocId = `um_${telegramUserId}_daily_bonus_${todayStr}`;
+        const bonusSnap = await getDoc(doc(db, 'user_missions', bonusDocId));
+        if (!bonusSnap.exists()) {
+          await setDoc(doc(db, 'user_missions', bonusDocId), {
+            user_id: telegramUserId,
+            mission_id: "daily_bonus_100",
+            status: "claimed",
+            completed_at: new Date().toISOString(),
+            claimed_at: new Date().toISOString(),
+            xp_awarded: 100
+          });
+          await awardUserXp(telegramUserId, 100, "All Daily Missions Completed Bonus", "daily_bonus");
+          dailyBonusAwarded = true;
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: `Mission ${mission.title} completed successfully!`,
+      xpAwarded: mission.xp_reward,
+      xpResult,
+      dailyBonusAwarded
+    });
+
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 5. GET user direct referral structure & invite links
+app.get('/api/growth/referrals', requireTelegramAuth, async (req: any, res) => {
+  const telegramUserId = String(req.tgUser.id);
+  try {
+    const userDocRef = doc(db, 'users', telegramUserId);
+    const userSnap = await getDoc(userDocRef);
+    if (!userSnap.exists()) {
+      return res.status(404).json({ error: "Sovereign user profile not found." });
+    }
+
+    const user = userSnap.data();
+    const refsQuery = query(collection(db, 'referrals'), where('referrer_user_id', '==', telegramUserId));
+    const refsDocs = await getDocs(refsQuery);
+    
+    const list: any[] = [];
+    refsDocs.forEach((d) => list.push(d.data()));
+
+    const enrichedList: any[] = [];
+    for (const item of list) {
+      const refUserRef = doc(db, 'users', item.referred_user_id);
+      const refUserSnap = await getDoc(refUserRef);
+      if (refUserSnap.exists()) {
+        const ru = refUserSnap.data();
+        enrichedList.push({
+          telegramId: ru.id,
+          username: ru.username,
+          firstName: ru.first_name,
+          walletConnected: !!ru.wallet_address,
+          level: ru.level || 1,
+          createdAt: item.created_at || ru.created_at,
+          purchaseVerified: item.purchase_verified || false,
+          xpAwarded: item.xp_awarded || 100
+        });
+      } else {
+        enrichedList.push({
+          telegramId: item.referred_user_id,
+          username: "Sovereign Member",
+          firstName: "Sovereign Member",
+          walletConnected: item.wallet_connected || false,
+          level: 1,
+          createdAt: item.created_at,
+          purchaseVerified: item.purchase_verified || false,
+          xpAwarded: item.xp_awarded || 100
+        });
+      }
+    }
+
+    return res.json({
+      success: true,
+      referralCode: user.referral_code,
+      inviteLink: `https://t.me/marg_ecosystem_bot/app?startapp=ref_${telegramUserId}`,
+      referrals: enrichedList,
+      stats: {
+        totalInvited: enrichedList.length,
+        walletConnected: enrichedList.filter(item => item.walletConnected).length,
+        active: enrichedList.filter(item => item.level > 1).length,
+        xpEarned: user.referral_xp_earned || 0
+      }
+    });
+
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 6. GET Weekly/All-time Growth system leader standings
+app.get('/api/growth/leaderboard', requireTelegramAuth, async (req: any, res) => {
+  const type = req.query.type || 'weekly';
+  const telegramUserId = String(req.tgUser.id);
+
+  try {
+    const usersDocs = await getDocs(collection(db, 'users'));
+    let usersList: any[] = [];
+    usersDocs.forEach((d) => usersList.push(d.data()));
+
+    if (type === 'weekly') {
+      usersList.sort((a, b) => (b.weekly_xp || 0) - (a.weekly_xp || 0));
+    } else {
+      usersList.sort((a, b) => (b.total_xp || 0) - (a.total_xp || 0));
+    }
+
+    let leaderboard = usersList.map((u, i) => ({
+      rank: i + 1,
+      userId: String(u.id),
+      username: u.username || `user_${u.id}`,
+      firstName: u.first_name || "Sovereign Member",
+      level: getLevelAndTitle(u.total_xp || 0).level,
+      levelTitle: getLevelAndTitle(u.total_xp || 0).title,
+      xp: type === 'weekly' ? (u.weekly_xp || 0) : (u.total_xp || 0),
+      isCurrentUser: String(u.id) === telegramUserId
+    }));
+
+    const mockCompetitors = [
+      { name: "ton_whale_44", xpWeekly: 2450, xpAllTime: 12500, level: 5, levelTitle: "Builder" },
+      { name: "cryptopioneer_x", xpWeekly: 1800, xpAllTime: 8200, level: 5, levelTitle: "Builder" },
+      { name: "blum_raider_9", xpWeekly: 1200, xpAllTime: 4400, level: 4, levelTitle: "Raider" },
+      { name: "marg_shielder", xpWeekly: 950, xpAllTime: 3100, level: 4, levelTitle: "Raider" },
+      { name: "sovereign_hodl", xpWeekly: 750, xpAllTime: 2300, level: 3, levelTitle: "Holder" },
+      { name: "web3nexus", xpWeekly: 400, xpAllTime: 1600, level: 3, levelTitle: "Holder" },
+      { name: "tonconnect_master", xpWeekly: 350, xpAllTime: 800, level: 2, levelTitle: "Supporter" },
+      { name: "alpha_builder", xpWeekly: 200, xpAllTime: 1400, level: 2, levelTitle: "Supporter" },
+      { name: "blum_watcher", xpWeekly: 150, xpAllTime: 450, level: 1, levelTitle: "Explorer" }
+    ];
+
+    if (leaderboard.length < 15) {
+      const needed = 15 - leaderboard.length;
+      const sortedMocks = [...mockCompetitors];
+      if (type === 'weekly') {
+        sortedMocks.sort((a, b) => b.xpWeekly - a.xpWeekly);
+      } else {
+        sortedMocks.sort((a, b) => b.xpAllTime - a.xpAllTime);
+      }
+
+      for (let i = 0; i < Math.min(needed, sortedMocks.length); i++) {
+        const mc = sortedMocks[i];
+        leaderboard.push({
+          rank: leaderboard.length + 1,
+          userId: `mock_${mc.name}`,
+          username: mc.name,
+          firstName: mc.name.charAt(0).toUpperCase() + mc.name.slice(1).replace(/_/g, " "),
+          level: mc.level,
+          levelTitle: mc.levelTitle,
+          xp: type === 'weekly' ? mc.xpWeekly : mc.xpAllTime,
+          isCurrentUser: false
+        });
+      }
+    }
+
+    leaderboard.sort((a, b) => b.xp - a.xp);
+    leaderboard.forEach((item, index) => {
+      item.rank = index + 1;
+    });
+
+    const currentUserEntry = leaderboard.find(item => item.isCurrentUser);
+    const userRank = currentUserEntry ? currentUserEntry.rank : 1;
+
+    return res.json({
+      success: true,
+      type,
+      leaderboard,
+      myRank: userRank
+    });
+
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 7. GET active growth campaigns and reward ledgers
+app.get('/api/growth/rewards', requireTelegramAuth, async (req: any, res) => {
+  const telegramUserId = String(req.tgUser.id);
+  try {
+    const campaignsDocs = await getDocs(collection(db, 'campaigns'));
+    const campaignsList: any[] = [];
+    campaignsDocs.forEach((d) => campaignsList.push(d.data()));
+    if (campaignsList.length === 0) {
+      campaignsList.push(DEFAULT_CAMPAIGNS_PRESETS[0]);
+    }
+
+    const userRewardsDocs = await getDocs(query(collection(db, 'rewards'), where('user_id', '==', telegramUserId)));
+    const rewardsList: any[] = [];
+    userRewardsDocs.forEach((d) => rewardsList.push(d.data()));
+
+    return res.json({
+      success: true,
+      campaigns: campaignsList,
+      rewards: rewardsList,
+      rules: DEFAULT_CAMPAIGNS_PRESETS[0].rules
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 8. POST users apply for a growth campaign allocation
+app.post('/api/growth/rewards/apply', requireTelegramAuth, async (req: any, res) => {
+  const telegramUserId = String(req.tgUser.id);
+  const { campaignId } = req.body;
+
+  try {
+    const userDocRef = doc(db, 'users', telegramUserId);
+    const userSnap = await getDoc(userDocRef);
+    if (!userSnap.exists()) {
+      return res.status(404).json({ error: "Sovereign profile not found." });
+    }
+    const user = userSnap.data();
+
+    if (user.is_banned === true) {
+      return res.status(403).json({ error: "Application Rejected: Your profile is suspended from participating in campaign distributions." });
+    }
+
+    const existingRewardsDocs = await getDocs(query(collection(db, 'rewards'), where('user_id', '==', telegramUserId)));
+    let alreadyApplied = false;
+    existingRewardsDocs.forEach((d) => {
+      const r = d.data();
+      if (r.campaign_id === campaignId) alreadyApplied = true;
+    });
+
+    if (alreadyApplied) {
+      return res.status(400).json({ error: "Application Error: You have already applied for this campaign. Check status below." });
+    }
+
+    const walletConnected = !!user.wallet_address;
+    if (!walletConnected) {
+      return res.status(400).json({ error: "Qualification Failed: Active wallet connection is required to apply!" });
+    }
+
+    const rewardId = `reward_${telegramUserId}_${campaignId}`;
+    const rewardPayload = {
+      id: rewardId,
+      reward_id: rewardId,
+      user_id: telegramUserId,
+      campaign_id: campaignId,
+      reward_type: "TON",
+      amount: 1, // Standard qualifying entry is 1 TON contest entry
+      status: "pending", 
+      created_at: new Date().toISOString()
+    };
+
+    await setDoc(doc(db, 'rewards', rewardId), rewardPayload);
+    return res.json({ success: true, message: "Application submitted successfully! Qualification state is now pending manual audits.", reward: rewardPayload });
+
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+
+// --- ADMIN SYSTEM ENDPOINTS ---
+
+// 1. GET User growth database ledgers
+app.get('/api/admin/growth/users', requireAdminTelegramAuth, async (req: any, res) => {
+  try {
+    const usersDocs = await getDocs(collection(db, 'users'));
+    const list: any[] = [];
+    usersDocs.forEach((d) => {
+      const u = d.data();
+      list.push({
+        id: u.id,
+        telegramId: u.id,
+        username: u.username,
+        firstName: u.first_name,
+        walletAddress: u.wallet_address || null,
+        totalXp: u.total_xp || 0,
+        weeklyXp: u.weekly_xp || 0,
+        level: u.level || 1,
+        isBanned: u.is_banned === true,
+        isAdmin: u.is_admin === true || ADMIN_TELEGRAM_IDS.includes(String(u.id)),
+        balance: u.wallet_address ? (u.ton_marg_balance || 0) : (u.balance || 0),
+        dailyStreak: u.daily_streak || 1,
+        createdAt: u.created_at
+      });
+    });
+    return res.json({ success: true, users: list });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. GET Direct network mappings referrals
+app.get('/api/admin/growth/referrals', requireAdminTelegramAuth, async (req: any, res) => {
+  try {
+    const refsDocs = await getDocs(collection(db, 'referrals'));
+    const list: any[] = [];
+    refsDocs.forEach((d) => list.push(d.data()));
+    return res.json({ success: true, referrals: list });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. GET Global XP history grants audit trail logs
+app.get('/api/admin/growth/xp-history', requireAdminTelegramAuth, async (req: any, res) => {
+  try {
+    const xpDocs = await getDocs(collection(db, 'xp_history'));
+    const list: any[] = [];
+    xpDocs.forEach((d) => list.push(d.data()));
+    list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return res.json({ success: true, history: list });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. POST Create a custom mission card
+app.post('/api/admin/growth/missions', requireAdminTelegramAuth, async (req: any, res) => {
+  const { mission_id, title, description, type, xp_reward, is_daily, is_active, validation_type, external_url } = req.body;
+  if (!mission_id || !title || !type || xp_reward === undefined || validation_type === undefined) {
+    return res.status(400).json({ error: "Missing required mission parameters." });
+  }
+
+  try {
+    const mRef = doc(db, 'missions', mission_id);
+    const payload = {
+      mission_id,
+      title,
+      description: description || "",
+      type,
+      xp_reward: Number(xp_reward),
+      is_daily: !!is_daily,
+      is_active: is_active !== false,
+      validation_type,
+      external_url: external_url || "",
+      created_at: new Date().toISOString()
+    };
+    await setDoc(mRef, payload);
+    return res.json({ success: true, message: "Mission card successfully added!", mission: payload });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 5. PUT Modify mission configuration cards
+app.put('/api/admin/growth/missions/:missionId', requireAdminTelegramAuth, async (req: any, res) => {
+  const missionId = req.params.missionId;
+  const updateData = req.body;
+
+  try {
+    const mRef = doc(db, 'missions', missionId);
+    const mSnap = await getDoc(mRef);
+    if (!mSnap.exists()) {
+      return res.status(404).json({ error: "Mission card not found." });
+    }
+
+    const payload: any = {};
+    if (updateData.title !== undefined) payload.title = updateData.title;
+    if (updateData.description !== undefined) payload.description = updateData.description;
+    if (updateData.type !== undefined) payload.type = updateData.type;
+    if (updateData.xp_reward !== undefined) payload.xp_reward = Number(updateData.xp_reward);
+    if (updateData.is_daily !== undefined) payload.is_daily = !!updateData.is_daily;
+    if (updateData.is_active !== undefined) payload.is_active = !!updateData.is_active;
+    if (updateData.validation_type !== undefined) payload.validation_type = updateData.validation_type;
+    if (updateData.external_url !== undefined) payload.external_url = updateData.external_url;
+
+    await updateDoc(mRef, payload);
+    return res.json({ success: true, message: "Mission card successfully updated!", updatedKeys: payload });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 6. POST Admin adjust XP manually or suspend users from claiming
+app.post('/api/admin/growth/xp/manual', requireAdminTelegramAuth, async (req: any, res) => {
+  const { userId, amount, reason, actionType } = req.body;
+  if (!userId) {
+    return res.status(400).json({ error: "Missing target userId parameter specification." });
+  }
+
+  try {
+    const uRef = doc(db, 'users', userId);
+    const uSnap = await getDoc(uRef);
+    if (!uSnap.exists()) {
+      return res.status(404).json({ error: "User profile not found." });
+    }
+
+    const user = uSnap.data();
+
+    if (actionType === "ban") {
+      await updateDoc(uRef, { is_banned: true });
+      return res.json({ success: true, message: `Successfully banned user @${user.username || userId} from rewards.` });
+    } else if (actionType === "unban") {
+      await updateDoc(uRef, { is_banned: false });
+      return res.json({ success: true, message: `Successfully unbanned user @${user.username || userId}.` });
+    }
+
+    const xpAmount = Number(amount);
+    if (isNaN(xpAmount) || xpAmount === 0) {
+      return res.status(400).json({ error: "Amount must be a non-zero valid integer." });
+    }
+
+    const nextXp = Math.max(0, (user.total_xp || 0) + xpAmount);
+    const levelInfo = getLevelAndTitle(nextXp);
+
+    await updateDoc(uRef, {
+      total_xp: nextXp,
+      level: levelInfo.level
+    });
+
+    const xpHistoryId = `xp_manual_${userId}_${Date.now()}`;
+    await setDoc(doc(db, 'xp_history', xpHistoryId), {
+      id: xpHistoryId,
+      user_id: userId,
+      amount: xpAmount,
+      reason: reason || "Manual administrator adjustment",
+      source: "admin",
+      admin_id: String(req.tgUser.id),
+      timestamp: new Date().toISOString()
+    });
+
+    return res.json({
+      success: true,
+      message: `Successfully adjusted XP for user @${user.username || userId} by ${xpAmount > 0 ? '+' : ''}${xpAmount} XP. Current: ${nextXp} XP.`
+    });
+
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 7. GET all global user rewards
+app.get('/api/admin/growth/rewards', requireAdminTelegramAuth, async (req: any, res) => {
+  try {
+    const rewardsDocs = await getDocs(collection(db, 'rewards'));
+    const list: any[] = [];
+    rewardsDocs.forEach((d) => list.push(d.data()));
+    return res.json({ success: true, rewards: list });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 8. POST Admin approve campaign payouts
+app.post('/api/admin/growth/rewards/:rewardId/approve', requireAdminTelegramAuth, async (req: any, res) => {
+  const rewardId = req.params.rewardId;
+  const { transactionHash } = req.body;
+  try {
+    const rewardRef = doc(db, 'rewards', rewardId);
+    const rSnap = await getDoc(rewardRef);
+    if (!rSnap.exists()) {
+      return res.status(404).json({ error: "Reward item not found." });
+    }
+
+    const payload: any = {
+      status: "approved",
+      approved_by: String(req.tgUser.id),
+      paid_at: new Date().toISOString()
+    };
+    if (transactionHash) {
+      payload.transaction_hash = transactionHash;
+      payload.status = "paid";
+    }
+
+    await updateDoc(rewardRef, payload);
+    return res.json({ success: true, message: `Reward ${rewardId} has been successfully approved.` });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 9. POST Admin reject campaign payouts
+app.post('/api/admin/growth/rewards/:rewardId/reject', requireAdminTelegramAuth, async (req: any, res) => {
+  const rewardId = req.params.rewardId;
+  const { reason } = req.body;
+  try {
+    const rewardRef = doc(db, 'rewards', rewardId);
+    const rSnap = await getDoc(rewardRef);
+    if (!rSnap.exists()) {
+      return res.status(404).json({ error: "Reward item not found." });
+    }
+
+    await updateDoc(rewardRef, {
+      status: "rejected",
+      rejection_reason: reason || "Did not meet campaign qualification parameters",
+      approved_by: String(req.tgUser.id)
+    });
+    return res.json({ success: true, message: `Reward ${rewardId} has been successfully rejected.` });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 10. POST Admin create a promotional campaign
+app.post('/api/admin/growth/campaigns', requireAdminTelegramAuth, async (req: any, res) => {
+  const { campaign_id, title, description, start_date, end_date, prize_pool, rules } = req.body;
+  if (!campaign_id || !title) {
+    return res.status(400).json({ error: "Missing campaign_id or title parameters." });
+  }
+  try {
+    const payload = {
+      campaign_id,
+      title,
+      description: description || "",
+      start_date: start_date || new Date().toISOString(),
+      end_date: end_date || new Date().toISOString(),
+      status: "active",
+      prize_pool: prize_pool || "0 TON",
+      rules: rules || ""
+    };
+    await setDoc(doc(db, 'campaigns', campaign_id), payload);
+    return res.json({ success: true, message: "Campaign created successfully!", campaign: payload });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 11. GET Admin CSV Data Report download dump
+app.get('/api/admin/growth/export', requireAdminTelegramAuth, async (req: any, res) => {
+  try {
+    const usersDocs = await getDocs(collection(db, 'users'));
+    let csv = "ID,Username,FirstName,WalletAddress,TotalXP,WeeklyXP,Level,IsBanned,CreatedAt\n";
+    usersDocs.forEach((d) => {
+      const u = d.data();
+      const username = (u.username || "").replace(/,/g, " ");
+      const firstName = (u.first_name || "Sovereign").replace(/,/g, " ");
+      csv += `${u.id},"${username}","${firstName}",${u.wallet_address || ""},${u.total_xp || 0},${u.weekly_xp || 0},${u.level || 1},${u.is_banned === true ? "YES" : "NO"},${u.created_at || ""}\n`;
+    });
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=marg_growth_users.csv');
+    return res.status(200).send(csv);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+
+// 12. Dynamic Leaderboard API
 app.get('/api/leaderboard', async (req, res) => {
   const { type } = req.query; // 'holders' | 'lockers' | 'referrers'
   

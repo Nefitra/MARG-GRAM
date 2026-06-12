@@ -89,6 +89,68 @@
         "updated_at": { "type": "string", "format": "date-time" }
       },
       "required": ["user_id", "holder_power", "rank", "updated_at"]
+    },
+    "Mission": {
+      "title": "Growth Mission",
+      "description": "Tasks that users can complete to earn XP and level rewards",
+      "type": "object",
+      "properties": {
+        "mission_id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "type": "string", "enum": ["onboarding", "social", "token", "daily"] },
+        "xp_reward": { "type": "number" },
+        "is_daily": { "type": "boolean" },
+        "is_active": { "type": "boolean" },
+        "validation_type": { "type": "string", "enum": ["auto", "wallet", "social", "visit", "verify_balance", "verify_purchase", "verify_vault", "checkin"] },
+        "external_url": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["mission_id", "title", "xp_reward", "is_daily", "is_active", "validation_type"]
+    },
+    "UserMission": {
+      "title": "User Completed Mission",
+      "description": "Records tracking completed user missions and progress",
+      "type": "object",
+      "properties": {
+        "user_id": { "type": "string" },
+        "mission_id": { "type": "string" },
+        "status": { "type": "string", "enum": ["claimed", "completed"] },
+        "completed_at": { "type": "string", "format": "date-time" },
+        "claimed_at": { "type": "string", "format": "date-time" },
+        "xp_awarded": { "type": "number" }
+      },
+      "required": ["user_id", "mission_id", "status"]
+    },
+    "XPHistory": {
+      "title": "XP Earning Audit Log",
+      "description": "A ledger tracking all user XP acquisitions and grants",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "amount": { "type": "number" },
+        "reason": { "type": "string" },
+        "source": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "amount", "reason", "source", "timestamp"]
+    },
+    "Campaign": {
+      "title": "Campaign Meta",
+      "description": "Event structures defining rewards contests or milestones",
+      "type": "object",
+      "properties": {
+        "campaign_id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "start_date": { "type": "string", "format": "date-time" },
+        "end_date": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["active", "ended", "upcoming"] },
+        "prize_pool": { "type": "string" },
+        "rules": { "type": "string" }
+      },
+      "required": ["campaign_id", "title", "status"]
     }
   },
   "firestore": {
@@ -115,6 +177,22 @@
     "/leaderboard/{userId}": {
       "schema": "Leaderboard",
       "description": "Aggregated cache of top holders and leaders details"
+    },
+    "/missions/{missionId}": {
+      "schema": "Mission",
+      "description": "Active tasks for growth engine"
+    },
+    "/user_missions/{userMissionId}": {
+      "schema": "UserMission",
+      "description": "Completion states of mission tasks"
+    },
+    "/xp_history/{xpHistoryId}": {
+      "schema": "XPHistory",
+      "description": "Audit trails for allocated growth XP points"
+    },
+    "/campaigns/{campaignId}": {
+      "schema": "Campaign",
+      "description": "Promotional events campaigns list"
     }
   }
 }
