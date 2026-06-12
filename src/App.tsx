@@ -134,7 +134,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [tgError, setTgError] = useState<string | null>(null);
 
-  const [topPadding, setTopPadding] = useState<string>("calc(env(safe-area-inset-top, 0px) + 96px)");
+  const [topPadding, setTopPadding] = useState<string>("calc(env(safe-area-inset-top, 0px) + 48px)");
 
   useEffect(() => {
     const calculatePadding = () => {
@@ -151,9 +151,9 @@ export default function App() {
         
         if (isMobileDevice || tgSafeTop > 0) {
           const maxSafe = Math.max(tgSafeTop, 0);
-          setTopPadding(`calc(max(env(safe-area-inset-top, 0px), ${maxSafe}px) + 96px)`);
+          setTopPadding(`calc(max(env(safe-area-inset-top, 0px), ${maxSafe}px) + 48px)`);
         } else {
-          setTopPadding("calc(env(safe-area-inset-top, 0px) + 24px)");
+          setTopPadding("calc(env(safe-area-inset-top, 0px) + 12px)");
         }
       } catch (err) {
         console.error("Error computing dynamic top safe area:", err);
