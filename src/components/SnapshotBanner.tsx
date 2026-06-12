@@ -59,9 +59,9 @@ export default function SnapshotBanner({ userBalance, userLocked, referralsCount
   };
 
   // Check eligibility metrics
-  const hasMinBalance = userBalance >= 1000;
-  const hasLocked = userLocked > 0;
-  const hasReferral = referralsCount >= 1;
+  const hasMinBalance = (userBalance ?? 0) >= 1000;
+  const hasLocked = (userLocked ?? 0) > 0;
+  const hasReferral = (referralsCount ?? 0) >= 1;
 
   const totalChecks = [hasMinBalance, hasLocked, hasReferral].filter(Boolean).length;
   const isEligible = totalChecks === 3;
@@ -138,7 +138,7 @@ export default function SnapshotBanner({ userBalance, userLocked, referralsCount
               )}
               <div className="text-left">
                 <span className="block text-xs text-white/90 font-medium">Hold ≥ 1,000 MARG</span>
-                <span className="block text-[10px] text-purple-400/70 font-mono">Your balance: {userBalance.toLocaleString()} MARG</span>
+                <span className="block text-[10px] text-purple-400/70 font-mono">Your balance: {(userBalance ?? 0).toLocaleString()} MARG</span>
               </div>
             </div>
             {hasMinBalance && <span className="text-[10px] font-mono text-emerald-400 uppercase">Passed</span>}

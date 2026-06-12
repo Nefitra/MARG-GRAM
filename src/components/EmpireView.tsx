@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { Share2, Users, Trophy, UsersRound, Zap, Check, Copy } from 'lucide-react';
 import { motion } from 'motion/react';
+import { SoundManager } from '../utils/soundManager';
 
 interface EmpireViewProps {
   referralCount: number;
@@ -21,6 +22,7 @@ export default function EmpireView({ referralCount, referralPower, referralRank,
   const handleCopy = () => {
     navigator.clipboard.writeText(inviteLink);
     setCopied(true);
+    SoundManager.playSuccess();
     onInvite();
     setTimeout(() => setCopied(false), 2000);
   };
@@ -118,9 +120,99 @@ export default function EmpireView({ referralCount, referralPower, referralRank,
           <span className="text-[10px] font-mono text-purple-400 block uppercase mb-1">Ecosystem Power Yield</span>
           <span className="text-2xl font-display font-black text-[#c084fc] flex items-center gap-1">
             <Zap className="w-4 h-4" />
-            +{referralPower.toLocaleString()}
+            +{(referralPower ?? 0).toLocaleString()}
           </span>
           <span className="text-[10px] text-purple-300/70 font-mono mt-1 block">Rank: {referralRank}</span>
+        </div>
+      </div>
+
+      {/* 2.5 Dynamic Referral Rank Progression Tracker */}
+      <div className="p-6 rounded-3xl bg-dark-space/75 border border-white/5 text-left relative overflow-hidden">
+        <div className="absolute -left-12 -bottom-12 w-24 h-24 bg-purple-500/5 rounded-full blur-xl pointer-events-none" />
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <h4 className="text-xs font-mono font-bold text-white uppercase tracking-wider">Rank progression</h4>
+            <span className="text-[10px] text-purple-300/70 font-mono block">Ecosystem hierarchy path</span>
+          </div>
+          <span className="text-xs font-mono font-black text-[#c084fc] bg-purple-950/40 border border-purple-500/20 px-2 py-0.5 rounded-lg select-none">
+            {referralRank}
+          </span>
+        </div>
+
+        {/* Checkpoints Visual Progress Track */}
+        <div className="relative mt-6 mb-7 px-4">
+          {/* Progress track background */}
+          <div className="absolute top-1/2 left-4 right-4 h-1 bg-black/50 border border-white/5 -translate-y-1/2 rounded-full" />
+          
+          {/* Progress fill (based on 0-10 referrals total) */}
+          <div 
+            className="absolute top-1/2 left-4 h-1 bg-gradient-to-r from-purple-500 via-[#c084fc] to-magenta-400 -translate-y-1/2 rounded-full transition-all duration-700 ease-out shadow-[0_0_8px_rgba(168,85,247,0.5)]"
+            style={{ width: `calc(${Math.min(100, (referralCount / 10) * 100)}% - 8px)` }}
+          />
+
+          {/* Rank Markers */}
+          <div className="relative flex justify-between items-center">
+            {/* Squire (0 referrals) */}
+            <div className="flex flex-col items-center relative z-10">
+              <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all duration-500 ${
+                referralCount >= 0 
+                  ? 'bg-slate-950 border-purple-500 text-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.4)]'
+                  : 'bg-black/80 border-white/10 text-white/20'
+              }`}>
+                <span className="text-[8px] font-mono font-bold">I</span>
+              </div>
+              <span className="absolute -bottom-5 text-[8px] font-mono text-white/50 whitespace-nowrap">Squire (0)</span>
+            </div>
+
+            {/* Executor (5 referrals) */}
+            <div className="flex flex-col items-center relative z-10">
+              <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all duration-500 ${
+                referralCount >= 5 
+                  ? 'bg-slate-950 border-purple-400 text-[#c084fc] shadow-[0_0_8px_rgba(168,85,247,0.5)]'
+                  : 'bg-black/80 border-white/10 text-white/20'
+              }`}>
+                <span className="text-[8px] font-mono font-bold">II</span>
+              </div>
+              <span className="absolute -bottom-5 text-[8px] font-mono text-white/50 whitespace-nowrap">Executor (5)</span>
+            </div>
+
+            {/* Sovereign (10 referrals) */}
+            <div className="flex flex-col items-center relative z-10">
+              <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all duration-500 ${
+                referralCount >= 10 
+                  ? 'bg-slate-950 border-amber-400 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.4)]'
+                  : 'bg-black/80 border-white/10 text-white/20'
+              }`}>
+                <span className="text-[8px] font-mono font-bold">III</span>
+              </div>
+              <span className="absolute -bottom-5 text-[8px] font-mono text-white/50 whitespace-nowrap">Sovereign (10)</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Informative Status Requirements Message */}
+        <div className="mt-4 p-3 bg-black/30 border border-white/5 rounded-2xl flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-purple-950/30 border border-purple-500/15 flex items-center justify-center shrink-0">
+            <UsersRound className="w-4 h-4 text-purple-400" />
+          </div>
+          <div className="text-xs">
+            {referralCount < 5 ? (
+              <p className="text-white/90 font-mono text-[11px]">
+                Need <span className="font-black text-[#c084fc]">{5 - referralCount} more</span> connections to achieve <span className="font-bold text-white">Executor</span>
+              </p>
+            ) : referralCount < 10 ? (
+              <p className="text-white/90 font-mono text-[11px]">
+                Need <span className="font-black text-[#c084fc]">{10 - referralCount} more</span> connections to achieve <span className="font-bold text-amber-400">Sovereign Elite</span>
+              </p>
+            ) : (
+              <p className="text-emerald-400 font-mono text-[11px] font-bold">
+                ★ Maximized Rank Secured! Sovereign Status Active
+              </p>
+            )}
+            <span className="text-[9px] text-[#c084fc]/60 font-mono block mt-0.5">
+              Current progress: {referralCount} / 10 Tier points
+            </span>
+          </div>
         </div>
       </div>
 

@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Cpu, Lock, Zap, Clock, Key, Award, AlertCircle, Wallet } from 'lucide-react';
 import { useTonAddress, useTonConnectUI } from '@tonconnect/ui-react';
 import { LockedPosition } from '../types';
+import { SoundManager } from '../utils/soundManager';
 
 interface VaultViewProps {
   balance: number;
@@ -83,15 +84,18 @@ export default function VaultView({ balance, locks, onLock }: VaultViewProps) {
   const handleStartLock = () => {
     if (amount <= 0) {
       setErrorMessage('Specify an amount larger than zero');
+      SoundManager.playError();
       return;
     }
     if (amount > safeBalance) {
       setErrorMessage(`Insufficient wallet balance. You have ${safeBalance.toLocaleString()} MARG`);
+      SoundManager.playError();
       return;
     }
 
     setLockingActive(true);
     setErrorMessage('');
+    SoundManager.playUnlock();
 
     // Trigger powerful vault sealing animation for 3.5 seconds
     setTimeout(() => {
@@ -99,6 +103,7 @@ export default function VaultView({ balance, locks, onLock }: VaultViewProps) {
       setLockingActive(false);
       setAnimationCompleted(true);
       setAmount(0);
+      SoundManager.playSuccess();
 
       setTimeout(() => {
         setAnimationCompleted(false);
@@ -150,7 +155,7 @@ export default function VaultView({ balance, locks, onLock }: VaultViewProps) {
                 transition={{ repeat: Infinity, duration: 1 }}
                 className="text-xl font-display font-semibold text-white tracking-widest"
               >
-                LOCKING {amount.toLocaleString()} MARG
+                LOCKING {(amount ?? 0).toLocaleString()} MARG
               </motion.h3>
               
               <div className="mt-4 font-mono text-[11px] text-white/50 space-y-1 text-left bg-black/40 p-4 rounded-xl border border-white/5 max-h-[140px] overflow-y-auto">
@@ -206,7 +211,7 @@ export default function VaultView({ balance, locks, onLock }: VaultViewProps) {
               onClick={() => setAmount(safeBalance)}
               className="cursor-pointer hover:text-white transition-colors underline"
             >
-              Max: {safeBalance.toLocaleString()} MARG
+              Max: {(safeBalance ?? 0).toLocaleString()} MARG
             </span>
           </div>
 
@@ -268,7 +273,7 @@ export default function VaultView({ balance, locks, onLock }: VaultViewProps) {
               Power Multiplier Status
             </span>
             <span className="text-[20px] font-display font-black text-white mt-1">
-              +{predictedPowerIncrement.toLocaleString()} POWER
+              +{(predictedPowerIncrement ?? 0).toLocaleString()} POWER
             </span>
           </div>
           <div className="text-right">
@@ -336,13 +341,13 @@ export default function VaultView({ balance, locks, onLock }: VaultViewProps) {
                       <Lock className="w-4 h-4" />
                     </div>
                     <div className="text-left">
-                      <span className="block text-xs font-semibold text-white">{lockAmount.toLocaleString()} MARG</span>
+                      <span className="block text-xs font-semibold text-white">{(lockAmount ?? 0).toLocaleString()} MARG</span>
                       <span className="block text-[10px] font-mono text-purple-400">Unlock: {unlockDateStr}</span>
                     </div>
                   </div>
 
                   <div className="text-right flex flex-col items-end">
-                    <span className="text-xs font-display font-black text-purple-400">+{powerYield.toLocaleString()} POWER</span>
+                    <span className="text-xs font-display font-black text-purple-400">+{(powerYield ?? 0).toLocaleString()} POWER</span>
                     <span className="text-[9px] font-mono bg-indigo-950/50 text-indigo-300 px-1.5 py-0.5 rounded uppercase mt-1">
                       {multiplier}x locked
                     </span>

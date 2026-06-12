@@ -41,6 +41,7 @@ export interface UserState {
   empireCreated: boolean;
   rank: number;
   claimedMilestones: number[];
+  earningHistory?: { date: string; amount: number }[];
 }
 
 export interface LeaderboardEntry {

@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Inbox, Zap, Sparkles, Award, Star, Loader2, Play } from 'lucide-react';
+import { SoundManager } from '../utils/soundManager';
 
 interface MysteryBoxViewProps {
   boxesOwned: number;
@@ -28,10 +29,15 @@ export default function MysteryBoxView({ boxesOwned, onOpenBox, onBuyBoxes, user
   const [purchaseProgress, setPurchaseProgress] = useState(false);
 
   const handleOpenContainer = () => {
-    if (boxesOwned <= 0 || isOpening) return;
+    if (boxesOwned <= 0 || isOpening) {
+      SoundManager.playError();
+      return;
+    }
 
+    SoundManager.playTap();
     setIsOpening(true);
     setRewardReveal(null);
+    SoundManager.playUnlock();
 
     // Alien energy cube projection sequence
     setTimeout(() => {
@@ -42,17 +48,28 @@ export default function MysteryBoxView({ boxesOwned, onOpenBox, onBuyBoxes, user
       setRewardReveal(reward);
       setIsOpening(false);
       onOpenBox(reward.val, reward.special, reward.type);
+
+      if (reward.special) {
+        SoundManager.playUpgrade();
+      } else {
+        SoundManager.playSuccess();
+      }
     }, 3200);
   };
 
   const handleBuyContainer = () => {
     const cost = 500; // 500 MARG per loot container
-    if (userBalance < cost) return;
+    if (userBalance < cost) {
+      SoundManager.playError();
+      return;
+    }
 
+    SoundManager.playTap();
     setPurchaseProgress(true);
     setTimeout(() => {
       onBuyBoxes(1, cost);
       setPurchaseProgress(false);
+      SoundManager.playSuccess();
     }, 1200);
   };
 

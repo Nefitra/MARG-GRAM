@@ -102,7 +102,7 @@ export default function GlowSphere({ power, level }: GlowSphereProps) {
       <div className="relative z-10 text-center">
         <span className="block text-xs font-mono tracking-widest text-indigo-300/70 uppercase">Holder Power</span>
         <span className="block text-4xl font-display font-black text-white text-plasma-glow tracking-tight leading-none my-1">
-          {power.toLocaleString()}
+          {(power ?? 0).toLocaleString()}
         </span>
         <div className="flex items-center justify-center gap-1.5 text-xs text-plasma-glow mt-1 font-mono">
           <span className="font-semibold text-white tracking-wide uppercase px-2 py-0.5 rounded bg-violet-950/50 border border-violet-500/20">

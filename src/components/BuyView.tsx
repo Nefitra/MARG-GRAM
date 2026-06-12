@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { AreaChart, TrendingUp, Compass, ArrowRightLeft, DollarSign, Award, Copy, Check, ExternalLink, Loader2, Zap, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { SoundManager } from '../utils/soundManager';
 
 interface BuyViewProps {
   userBalance: number;
@@ -54,13 +55,18 @@ export default function BuyView({ userBalance, tonBalance, onConfirmBuy }: BuyVi
   const handleCopyContract = () => {
     navigator.clipboard.writeText(contractAddress);
     setCopied(true);
+    SoundManager.playSuccess();
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleSwapExecute = () => {
     const parsedAmount = parseFloat(margOutput);
-    if (parsedAmount <= 0 || isNaN(parsedAmount)) return;
+    if (parsedAmount <= 0 || isNaN(parsedAmount)) {
+      SoundManager.playError();
+      return;
+    }
 
+    SoundManager.playTap();
     setIsProcessing(true);
 
     // Simulate blockchain transaction routing
@@ -70,11 +76,13 @@ export default function BuyView({ userBalance, tonBalance, onConfirmBuy }: BuyVi
       setTonInput('');
       setMargOutput('0');
       setRecentClaimsCount(prev => prev + 1);
+      SoundManager.playSuccess();
     }, 2500);
   };
 
   // Preset quick buying templates
   const applyPreset = (tonVal: number) => {
+    SoundManager.playTap();
     setTonInput(tonVal.toString());
     setMargOutput((tonVal * EXCHANGE_RATE).toFixed(2));
   };
@@ -209,7 +217,7 @@ export default function BuyView({ userBalance, tonBalance, onConfirmBuy }: BuyVi
             <div className="bg-black/45 border border-white/5 rounded-2xl p-4 flex flex-col gap-1 relative overflow-hidden">
               <div className="flex justify-between items-center text-[10px] font-mono text-purple-300">
                 <span>YOU RECEIVE (ESTIMATED)</span>
-                <span>Wallet: {userBalance.toLocaleString()} MARG</span>
+                <span>Wallet: {(userBalance ?? 0).toLocaleString()} MARG</span>
               </div>
               <div className="flex justify-between items-center mt-1">
                 <span className="text-white font-display text-2xl font-black">
