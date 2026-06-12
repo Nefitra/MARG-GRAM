@@ -104,3 +104,60 @@ html, body {
 .animate-quantum {
   animation: quantum-drift 8s ease-in-out infinite;
 }
+
+/* Premium Navigation Animations */
+@keyframes nav-breath-inactive {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 4px rgba(168, 85, 247, 0.04);
+  }
+  50% {
+    transform: scale(1.02);
+    box-shadow: 0 0 8px rgba(168, 85, 247, 0.12);
+  }
+}
+
+@keyframes nav-breath-active {
+  0%, 100% {
+    transform: translateY(-1px) scale(1);
+    box-shadow: 0 0 12px rgba(168, 85, 247, 0.3), inset 0 0 4px rgba(168, 85, 247, 0.15);
+  }
+  50% {
+    transform: translateY(-2.5px) scale(1.03);
+    box-shadow: 0 0 20px rgba(192, 132, 252, 0.65), inset 0 0 8px rgba(192, 132, 252, 0.35);
+  }
+}
+
+@keyframes energy-flow {
+  0% {
+    transform: translateX(-150%);
+  }
+  50%, 100% {
+    transform: translateX(180%);
+  }
+}
+
+@keyframes border-shimmer {
+  0% {
+    border-color: rgba(168, 85, 247, 0.35);
+  }
+  50% {
+    border-color: rgba(192, 132, 252, 0.85);
+  }
+  100% {
+    border-color: rgba(168, 85, 247, 0.35);
+  }
+}
+
+.animate-nav-inactive {
+  animation: nav-breath-inactive 3s ease-in-out infinite;
+}
+
+.animate-nav-active {
+  animation: nav-breath-active 2.5s ease-in-out infinite, border-shimmer 2.5s ease-in-out infinite;
+}
+
+.animate-energy-flow {
+  animation: energy-flow 6s cubic-bezier(0.25, 1, 0.5, 1) infinite;
+}
+

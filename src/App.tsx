@@ -809,12 +809,17 @@ export default function App() {
       </section>
 
       {/* MAIN NAVIGATION TAB LAYOUT CONTROLLERS */}
-      <nav className="flex gap-1 bg-black/60 p-1.5 rounded-2xl border border-white/5 w-full overflow-x-auto scroller-hidden z-20 relative mb-6">
+      <nav className="flex gap-1 bg-black/60 p-2 rounded-2xl border border-white/10 w-full overflow-x-auto scroller-hidden z-20 relative mb-6 min-h-[50px] items-center">
+        {/* Futuristic digital energy flow light beam */}
+        <div className="absolute top-0 left-0 right-0 h-[1px] overflow-hidden bg-white/5 pointer-events-none rounded-t-2xl">
+          <div className="w-[120px] h-full bg-gradient-to-r from-transparent via-[#a855f7] to-transparent blur-[0.5px] animate-energy-flow" />
+        </div>
+
         {[
           { id: 'home', label: 'Ecosystem', icon: Compass },
           { id: 'core', label: 'Level', icon: Zap },
           { id: 'vault', label: 'Vaults', icon: Lock },
-          { id: 'loot', label: 'Orbital Cargo', icon: Inbox },
+          { id: 'loot', label: 'Rewards', icon: Inbox },
           { id: 'empire', label: 'Empire', icon: Users },
           { id: 'trade', label: 'Portal', icon: ArrowRightLeft },
           { id: 'leaderboard', label: 'Ranks', icon: Trophy }
@@ -825,14 +830,21 @@ export default function App() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-1.5 py-2 px-3 rounded-xl text-xs font-mono tracking-wider cursor-pointer transition-all whitespace-nowrap ${
+              className={`relative flex items-center gap-1.5 py-1.5 px-3 rounded-xl text-[11px] font-mono tracking-wider cursor-pointer transition-all whitespace-nowrap overflow-visible select-none border border-transparent ${
                 isSelected
-                  ? 'bg-violet-950/75 border border-purple-500/35 text-[#d8b4fe] font-bold shadow-[0_0_12px_rgba(168,85,247,0.15)] font-display'
-                  : 'text-white/55 hover:text-white/80'
+                  ? 'animate-nav-active text-[#d8b4fe] font-bold font-display z-10'
+                  : 'animate-nav-inactive text-white/50 hover:text-white/80 hover:bg-white/5'
               }`}
             >
-              <Icon className="w-3.5 h-3.5" />
-              {tab.label}
+              {isSelected && (
+                <motion.div
+                  layoutId="activeNavBackground"
+                  className="absolute inset-0 bg-violet-950/60 rounded-xl border border-purple-500/20 -z-10"
+                  transition={{ type: "spring", stiffness: 380, damping: 25 }}
+                />
+              )}
+              <Icon className={`w-3.5 h-3.5 transition-colors duration-300 ${isSelected ? 'text-[#c084fc] drop-shadow-[0_0_5px_rgba(168,85,247,0.7)]' : 'text-white/40'}`} />
+              <span className="relative z-10">{tab.label}</span>
             </button>
           );
         })}
