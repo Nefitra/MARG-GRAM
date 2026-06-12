@@ -4,15 +4,16 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { AreaChart, TrendingUp, Compass, ArrowRightLeft, DollarSign, Award, Copy, Check, ExternalLink, Loader2, Zap } from 'lucide-react';
+import { AreaChart, TrendingUp, Compass, ArrowRightLeft, DollarSign, Award, Copy, Check, ExternalLink, Loader2, Zap, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface BuyViewProps {
   userBalance: number;
+  tonBalance: number;
   onConfirmBuy: (margAmount: number) => void;
 }
 
-export default function BuyView({ userBalance, onConfirmBuy }: BuyViewProps) {
+export default function BuyView({ userBalance, tonBalance, onConfirmBuy }: BuyViewProps) {
   const [tonInput, setTonInput] = useState<string>('');
   const [margOutput, setMargOutput] = useState<string>('0');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -170,11 +171,18 @@ export default function BuyView({ userBalance, onConfirmBuy }: BuyViewProps) {
         ) : (
           /* Swap Panel cabinet layout */
           <div className="flex flex-col gap-4">
+            <div className="p-4 rounded-2xl bg-amber-950/20 border border-amber-500/20 text-[#f59e0b] text-[11px] font-mono leading-relaxed mb-1 flex items-start gap-2.5 text-left">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500 animate-pulse" />
+              <div>
+                <strong>DEX swap integration in progress</strong> &middot; Direct on-chain decentralized exchange (DEX) liquidity pools integration is presently undergoing final security audits. Native TON-to-MARG swapping will be activated shortly.
+              </div>
+            </div>
+
             {/* Input TON Panel */}
-            <div className="bg-black/45 hover:bg-black/60 border border-white/5 rounded-2xl p-4 flex flex-col gap-1 transition-all">
+            <div className="bg-black/45 border border-white/5 rounded-2xl p-4 flex flex-col gap-1 transition-all">
               <div className="flex justify-between items-center text-[10px] font-mono text-purple-300">
                 <span>YOU PAY</span>
-                <span>TON Balance: 24.5 TON</span>
+                <span>TON Balance: {tonBalance > 0 ? `${tonBalance.toFixed(3)} TON` : 'Connect Wallet'}</span>
               </div>
               <div className="flex justify-between items-center mt-1">
                 <input
@@ -245,25 +253,11 @@ export default function BuyView({ userBalance, onConfirmBuy }: BuyViewProps) {
 
         {/* THE MAIN GLOWING BUY BUTTON */}
         <button
-          onClick={handleSwapExecute}
-          disabled={!tonInput || Number(tonInput) <= 0 || isProcessing}
-          className={`w-full py-4.5 rounded-2xl font-display font-black text-xs tracking-widest uppercase transition-all flex items-center justify-center gap-2 relative overflow-hidden cursor-pointer ${
-            tonInput && Number(tonInput) > 0 && !isProcessing
-              ? 'bg-gradient-to-r from-violet-600 via-purple-500 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white shadow-[0_0_30px_rgba(168,85,247,0.7)] animate-pulse active:scale-95'
-              : 'bg-white/5 border border-white/5 text-white/20 cursor-not-allowed'
-          }`}
+          disabled={true}
+          className="w-full py-4.5 rounded-2xl font-display font-black text-xs tracking-widest uppercase transition-all flex items-center justify-center gap-2 relative overflow-hidden bg-white/5 border border-white/5 text-white/30 cursor-not-allowed"
         >
-          {isProcessing ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin text-fuchsia-400" />
-              Swapping Asset Reserves...
-            </>
-          ) : (
-            <>
-              <DollarSign className="w-4 h-4 text-emerald-300" />
-              BUY MARG TOKENS NOW
-            </>
-          )}
+          <AlertTriangle className="w-4 h-4 text-amber-400" />
+          SWAP INTEGRATION IN PROGRESS
         </button>
       </div>
 

@@ -417,7 +417,7 @@ const JETTON_MASTER_ADDRESS = process.env.MARG_JETTON_MASTER_ADDRESS || process.
 
 // --- SECURITY LOGIC: TELEGRAM DATA INTEGRITY VERIFICATION ---
 function verifyTelegramWebAppData(initData: string, botToken: string): { success: boolean; data?: any; error?: string; isSandbox: boolean } {
-  if (!initData) return { success: false, error: "Empty init data", isSandbox: true };
+  if (!initData) return { success: false, error: "Empty init data", isSandbox: false };
 
   try {
     const params = new URLSearchParams(initData);
@@ -425,27 +425,16 @@ function verifyTelegramWebAppData(initData: string, botToken: string): { success
     const userString = params.get('user');
 
     if (!hash || !userString) {
-      return { success: false, error: "Missing hash or user parameter", isSandbox: true };
-    }
-
-    const isProd = process.env.NODE_ENV === "production" || process.env.STRICT_PROD_AUTH === "true";
-
-    // Support safe sandbox/mock preview sessions for web browser access or testing
-    if (hash === "mock_demo_mode_hash") {
-      if (isProd) {
-        return { success: false, error: "Mock authentication bypass is strictly disabled in production mode.", isSandbox: true };
-      }
-      const user = JSON.parse(userString);
-      return { success: true, data: { user, startParam: params.get('start_param') || "" }, isSandbox: true };
+      return { success: false, error: "Missing hash or user parameter", isSandbox: false };
     }
 
     if (!botToken) {
-      if (isProd) {
-        return { success: false, error: "Production mode requires a valid Telegram Bot Token.", isSandbox: true };
-      }
-      // Allow sandbox validation if bot token is not configured on the server
-      const user = JSON.parse(userString);
-      return { success: true, data: { user, startParam: params.get('start_param') || "" }, isSandbox: true };
+      return { success: false, error: "Configuration conflict: Telegram Bot Token is not configured on the server.", isSandbox: false };
+    }
+
+    // Direct block of mock hashes to secure production operations
+    if (hash === "mock_demo_mode_hash") {
+      return { success: false, error: "Mock authentication bypass is strictly disabled.", isSandbox: false };
     }
 
     // Build data-check-string
@@ -463,23 +452,31 @@ function verifyTelegramWebAppData(initData: string, botToken: string): { success
 
     return { success: false, error: "Data integrity verification failed. Signatures mismatched.", isSandbox: false };
   } catch (err: any) {
-    return { success: false, error: err.message || "Parsing collision occurred", isSandbox: true };
+    return { success: false, error: err.message || "Parsing collision occurred", isSandbox: false };
   }
 }
 
-const balanceCache = new Map<string, { balance: number; timestamp: number }>();
+const balanceCache = new Map<string, { balance: number; tonBalance: number; timestamp: number }>();
 const CACHE_TTL_MS = 60 * 1000; // 1 minute cache
 
-// --- TON API JETTON BALANCE RETRIEVER ---
-async function fetchMargBalance(walletAddress: string): Promise<number> {
-  if (!walletAddress) return 0;
+// --- TON API JETTON & NATIVE BALANCE RETRIEVER ---
+async function fetchWalletBalances(walletAddress: string): Promise<{ margBalance: number; tonBalance: number }> {
+  if (!walletAddress) return { margBalance: 0, tonBalance: 0 };
+
+  // Support MetaMask/EVM gracefully
+  if (walletAddress.toLowerCase().startsWith('0x')) {
+    return { margBalance: 0, tonBalance: 0 };
+  }
 
   const now = Date.now();
   const cached = balanceCache.get(walletAddress.toLowerCase());
   if (cached && now - cached.timestamp < CACHE_TTL_MS) {
     console.log(`[BALANCE CACHE] Returning cached MARG balance for ${walletAddress}: ${cached.balance}`);
-    return cached.balance;
+    return { margBalance: cached.balance, tonBalance: cached.tonBalance || 0 };
   }
+
+  let margBalance = 0;
+  let tonBalance = 0;
 
   try {
     const headers: Record<string, string> = {
@@ -489,39 +486,47 @@ async function fetchMargBalance(walletAddress: string): Promise<number> {
       headers["Authorization"] = `Bearer ${process.env.TONAPI_API_KEY}`;
     }
 
-    // Standard TonAPI accounts balance fetch
-    const response = await fetch(`https://tonapi.io/v2/accounts/${walletAddress}/jettons`, {
+    // 1. Fetch Jetton Balance
+    const jettonsResponse = await fetch(`https://tonapi.io/v2/accounts/${walletAddress}/jettons`, {
       headers
     });
     
-    if (response.status === 403) {
-      throw new Error("TonAPI Error 403: Forbidden - Ensure TONAPI_API_KEY is correct and has access permission.");
-    }
-    if (response.status === 429) {
-      throw new Error("TonAPI Error 429: Too Many Requests - Query limit reached. Please configure or update TONAPI_API_KEY.");
-    }
-    if (!response.ok) {
-      throw new Error(`TonAPI status error: ${response.status}`);
+    if (jettonsResponse.ok) {
+      const data = await jettonsResponse.json();
+      const balanceItem = data.balances?.find((b: any) => 
+        b.jetton?.address?.toLowerCase() === JETTON_MASTER_ADDRESS.toLowerCase()
+      );
+
+      if (balanceItem) {
+        const decimals = balanceItem.jetton?.decimals || 9;
+        const rawBalance = parseFloat(balanceItem.balance);
+        margBalance = rawBalance / Math.pow(10, decimals);
+      }
     }
 
-    const data = await response.json();
-    const balanceItem = data.balances?.find((b: any) => 
-      b.jetton?.address?.toLowerCase() === JETTON_MASTER_ADDRESS.toLowerCase()
-    );
-
-    let balanceNum = 0;
-    if (balanceItem) {
-      const decimals = balanceItem.jetton?.decimals || 9;
-      const rawBalance = parseFloat(balanceItem.balance);
-      balanceNum = rawBalance / Math.pow(10, decimals);
+    // 2. Fetch Native TON Balance
+    const nativeResponse = await fetch(`https://tonapi.io/v2/accounts/${walletAddress}`, {
+      headers
+    });
+    if (nativeResponse.ok) {
+      const nativeData = await nativeResponse.json();
+      if (nativeData && nativeData.balance) {
+        tonBalance = parseFloat(nativeData.balance) / 1e9; // Convert from nanoton to TON
+      }
     }
 
-    balanceCache.set(walletAddress.toLowerCase(), { balance: balanceNum, timestamp: now });
-    return balanceNum;
+    balanceCache.set(walletAddress.toLowerCase(), { balance: margBalance, tonBalance, timestamp: now });
+    return { margBalance, tonBalance };
   } catch (error: any) {
-    console.error(`Error querying TON Jetton Balance for ${walletAddress}:`, error.message || error);
-    throw error;
+    console.error(`Error querying TON Balances for ${walletAddress}:`, error.message || error);
+    // Return cached or fallback if request fails, ensuring no lockouts
+    return { margBalance: cached?.balance || 0, tonBalance: cached?.tonBalance || 0 };
   }
+}
+
+async function fetchMargBalance(walletAddress: string): Promise<number> {
+  const balances = await fetchWalletBalances(walletAddress);
+  return balances.margBalance;
 }
 
 // Helper to calculate total Holder Power with current multipliers & streaks
@@ -727,14 +732,16 @@ app.post('/api/user/init', async (req, res) => {
       user.last_login_at = nowISO;
     }
 
-    // Refresh live MARG Token jetton balance if wallet linked
+    // Refresh live MARG Token jetton & native balance if wallet linked
     if (user.wallet_address) {
       try {
-        const liveMargBal = await fetchMargBalance(user.wallet_address);
+        const balances = await fetchWalletBalances(user.wallet_address);
         await updateDoc(userDocRef, {
-          ton_marg_balance: liveMargBal
+          ton_marg_balance: balances.margBalance,
+          ton_balance: balances.tonBalance
         });
-        user.ton_marg_balance = liveMargBal;
+        user.ton_marg_balance = balances.margBalance;
+        user.ton_balance = balances.tonBalance;
       } catch (err: any) {
         console.error(`[INIT] Non-blocking balance update failed for ${user.wallet_address}:`, err.message || err);
       }
@@ -790,20 +797,21 @@ app.post('/api/user/connect-wallet', requireTelegramAuth, async (req: any, res) 
       return res.status(404).json({ error: "User account not found" });
     }
 
-    // Fetch TON jettons with helpful error handling if rate-limiting occurs
-    let liveMargBalance = 0;
+    // Fetch TON jettons and native balance details
+    let balances = { margBalance: 0, tonBalance: 0 };
     try {
-      liveMargBalance = await fetchMargBalance(walletAddress);
+      balances = await fetchWalletBalances(walletAddress);
     } catch (err: any) {
       console.error("[CONNECT] Balance verification failed:", err.message || err);
       return res.status(502).json({
-        error: `Wallet Connection Blocked: Unable to verify your MARG token balance because TonAPI is currently rate-limiting queries (${err.message || 'Node query timeout'}). Please retry in a few moments.`
+        error: `Wallet Connection Blocked: Unable to verify your wallet balance. Please retry in a few moments.`
       });
     }
 
     await updateDoc(userDocRef, {
       wallet_address: walletAddress,
-      ton_marg_balance: liveMargBalance
+      ton_marg_balance: balances.margBalance,
+      ton_balance: balances.tonBalance
     });
 
     // Reload entire details
@@ -1198,42 +1206,15 @@ app.get('/api/leaderboard', async (req, res) => {
       });
     });
 
-    // Seed realistic global community members to fill the Hall of Legends with active participants
-    const dummyComm = [
-      { userName: "@ton_emperor", power: 125400, lockedAmount: 75000, level: "Whale" },
-      { userName: "@cyber_phantom", power: 88500, lockedAmount: 50000, level: "Whale" },
-      { userName: "@defi_juggernaut", power: 67200, lockedAmount: 35000, level: "Elite" },
-      { userName: "@marg_prophet", power: 54100, lockedAmount: 25000, level: "Elite" },
-      { userName: "@ton_titan", power: 41900, lockedAmount: 20000, level: "Elite" },
-      { userName: "@solitary_whale", power: 31200, lockedAmount: 15000, level: "Elite" },
-      { userName: "@genesis_miner", power: 22400, lockedAmount: 10000, level: "Power" },
-      { userName: "@web3_sentry", power: 15900, lockedAmount: 8000, level: "Power" },
-      { userName: "@lock_sovereign", power: 11200, lockedAmount: 5000, level: "Power" },
-      { userName: "@alpha_commander", power: 8400, lockedAmount: 4000, level: "Active" },
-      { userName: "@cyber_ranger", power: 4600, lockedAmount: 2000, level: "Active" },
-      { userName: "@ton_scout", power: 1800, lockedAmount: 800, level: "Starter" },
-      { userName: "@blockchain_novice", power: 450, lockedAmount: 100, level: "Starter" }
-    ];
-
-    // Filter out dummy members that have the exact same name as any existing real db users
-    const filteredDummy = dummyComm.filter(
-      dc => !userEntries.some(ue => ue.userName.toLowerCase() === dc.userName.toLowerCase())
-    );
-    
-    // Combine
-    let combined = [...userEntries, ...filteredDummy];
-
     // Sort depending on section filter
     if (type === 'lockers') {
-      combined.sort((a, b) => b.lockedAmount - a.lockedAmount);
-    } else if (type === 'referrers') {
-      combined.sort((a, b) => b.power - a.power);
+      userEntries.sort((a, b) => b.lockedAmount - a.lockedAmount);
     } else {
-      combined.sort((a, b) => b.power - a.power);
+      userEntries.sort((a, b) => b.power - a.power);
     }
 
-    // Assign final ranks
-    const rankings = combined.map((entry, index) => ({
+    // Assign final ranks using only real registered users
+    const rankings = userEntries.map((entry, index) => ({
       rank: index + 1,
       userName: entry.userName,
       power: entry.power,

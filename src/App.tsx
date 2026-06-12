@@ -26,6 +26,8 @@ import { UserState, HolderLevel, LockedPosition } from './types';
 // Default state when nothing is in localStorage or server is loading
 const DEFAULT_STATE: UserState = {
   balance: 0,
+  realMargBalance: 0,
+  tonBalance: 0,
   lockedBalance: 0,
   holderPower: 0,
   level: 'Starter',
@@ -66,6 +68,11 @@ export default function App() {
   const [tonConnectUI] = useTonConnectUI();
   const tonAddress = useTonAddress();
 
+  const [metaMaskAddress, setMetaMaskAddress] = useState<string | null>(() => {
+    return localStorage.getItem('MARG_METAMASK_ADDRESS') || null;
+  });
+  const [showWalletConnector, setShowWalletConnector] = useState(false);
+
   const apiFetch = async (url: string, options: any = {}) => {
     const initData = (window as any).TELEGRAM_INIT_DATA || localStorage.getItem('MARG_ECOSYSTEM_INIT_DATA') || "";
     return fetch(url, {
@@ -76,6 +83,35 @@ export default function App() {
         'X-Telegram-Init-Data': initData,
       }
     });
+  };
+
+  const handleConnectMetaMask = async () => {
+    try {
+      if ((window as any).ethereum) {
+        const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
+        if (accounts && accounts[0]) {
+          const address = accounts[0];
+          setMetaMaskAddress(address);
+          localStorage.setItem('MARG_METAMASK_ADDRESS', address);
+          setShowWalletConnector(false);
+        }
+      } else {
+        alert("MetaMask is not available. Please ensure the MetaMask extension is installed and enabled.");
+      }
+    } catch (err: any) {
+      console.error("MetaMask connection failed:", err);
+      alert(`Failed to connect to MetaMask: ${err.message || err}`);
+    }
+  };
+
+  const handleDisconnectWallet = () => {
+    if (tonAddress) {
+      tonConnectUI.disconnect();
+    }
+    if (metaMaskAddress) {
+      setMetaMaskAddress(null);
+      localStorage.removeItem('MARG_METAMASK_ADDRESS');
+    }
   };
 
   const [state, setState] = useState<UserState>(() => {
@@ -95,9 +131,51 @@ export default function App() {
   const [activeClaimAnimation, setActiveClaimAnimation] = useState(false);
   const [claimText, setClaimText] = useState('');
   const [tgUser, setTgUser] = useState<any>(null);
-  const [isSandbox, setIsSandbox] = useState(false);
   const [loading, setLoading] = useState(true);
   const [tgError, setTgError] = useState<string | null>(null);
+
+  const [topPadding, setTopPadding] = useState<string>("calc(env(safe-area-inset-top, 0px) + 96px)");
+
+  useEffect(() => {
+    const calculatePadding = () => {
+      try {
+        const webapp = (window as any).Telegram?.WebApp;
+        let tgSafeTop = 0;
+        if (webapp) {
+          const webappSafeTop = webapp.safeAreaInset?.top || 0;
+          const webappContentSafeTop = webapp.contentSafeAreaInset?.top || 0;
+          tgSafeTop = Math.max(webappSafeTop, webappContentSafeTop);
+        }
+
+        const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        
+        if (isMobileDevice || tgSafeTop > 0) {
+          const maxSafe = Math.max(tgSafeTop, 0);
+          setTopPadding(`calc(max(env(safe-area-inset-top, 0px), ${maxSafe}px) + 96px)`);
+        } else {
+          setTopPadding("calc(env(safe-area-inset-top, 0px) + 24px)");
+        }
+      } catch (err) {
+        console.error("Error computing dynamic top safe area:", err);
+      }
+    };
+
+    calculatePadding();
+    
+    const timers = [
+      setTimeout(calculatePadding, 50),
+      setTimeout(calculatePadding, 150),
+      setTimeout(calculatePadding, 500),
+      setTimeout(calculatePadding, 1500),
+      setTimeout(calculatePadding, 3000),
+    ];
+
+    window.addEventListener('resize', calculatePadding);
+    return () => {
+      timers.forEach(clearTimeout);
+      window.removeEventListener('resize', calculatePadding);
+    };
+  }, []);
 
   // Load Telegram WebApp & Initialize User State
   useEffect(() => {
@@ -108,21 +186,20 @@ export default function App() {
         let initData = webapp?.initData || "";
         
         if (!initData) {
-          // Direct fallback for web browser access, bypassing Telegram blocks
-          initData = "user=" + encodeURIComponent(JSON.stringify({
-            id: 14201337,
-            username: "DemoSovereign",
-            first_name: "Demo Sovereign Member"
-          })) + "&hash=mock_demo_mode_hash";
+          setTgError("Telegram client credentials are required to verify user session.");
+          setLoading(false);
+          return;
         }
         (window as any).TELEGRAM_INIT_DATA = initData;
         localStorage.setItem('MARG_ECOSYSTEM_INIT_DATA', initData);
+
+        const activeWallet = tonAddress || metaMaskAddress || "";
 
         const response = await apiFetch('/api/user/init', {
           method: 'POST',
           body: JSON.stringify({ 
             initData, 
-            walletAddress: tonAddress || "" 
+            walletAddress: activeWallet
           })
         });
 
@@ -130,9 +207,24 @@ export default function App() {
           const resData = await response.json();
           if (resData.success) {
             setTgUser(resData.user);
-            setIsSandbox(resData.isSandbox || false);
+            
+            let displayTonBalance = resData.user.wallet_address ? (resData.user.ton_balance || 0) : 0;
+            if (metaMaskAddress && (window as any).ethereum) {
+              try {
+                const balanceWei = await (window as any).ethereum.request({
+                  method: 'eth_getBalance',
+                  params: [metaMaskAddress, 'latest']
+                });
+                displayTonBalance = parseInt(balanceWei, 16) / 1e18;
+              } catch (err) {
+                console.error("MetaMask initial balance fetch error:", err);
+              }
+            }
+
             const userState: UserState = {
-              balance: resData.user.wallet_address ? resData.user.ton_marg_balance : resData.user.balance,
+              balance: resData.user.balance || 0, // This is vMARG virtual balance
+              realMargBalance: resData.user.wallet_address ? (resData.user.ton_marg_balance || 0) : 0,
+              tonBalance: displayTonBalance,
               lockedBalance: resData.stats.totalLockedAmount || 0,
               holderPower: resData.stats.holderPower || 0,
               level: resData.stats.level || 'Starter',
@@ -140,7 +232,7 @@ export default function App() {
               referralCount: (resData.user.referral_count_l1 || 0) + (resData.user.referral_count_l2 || 0),
               referralPower: (resData.user.referral_count_l1 || 0) * 1500 + (resData.user.referral_count_l2 || 0) * 500,
               referralRank: resData.user.referral_count_l1 >= 10 ? 'Sovereign' : resData.user.referral_count_l1 >= 5 ? 'Executor' : 'Squire',
-              mysteryBoxesOwned: resData.user.mystery_boxes_owned ?? 3,
+              mysteryBoxesOwned: resData.user.mystery_boxes_owned ?? 0,
               openedBoxesCount: resData.user.opened_boxes_count || 0,
               lastClaimDate: resData.user.last_claim_date || null,
               locks: formatServerLocks(resData.locks),
@@ -151,39 +243,27 @@ export default function App() {
             setState(userState);
           }
         } else {
-          // If response not ok, fall back to offline storage / defaults gracefully so the app still renders
-          console.warn("Express API failed, loading standalone sandbox session.");
-          setIsSandbox(true);
-          setTgUser({
-            id: 14201337,
-            username: "DemoSovereign",
-            first_name: "Demo Sovereign Member"
-          });
+          setTgError("Sovereign server synchronization failed. Please launch the app inside the official Telegram client.");
         }
       } catch (err) {
         console.error("Failed synchronization with TON/Express API:", err);
-        // Fall back to offline/sandbox session to keep app accessible
-        setIsSandbox(true);
-        setTgUser({
-          id: 14201337,
-          username: "DemoSovereign",
-          first_name: "Demo Sovereign Member"
-        });
+        setTgError("Direct networking offline. Please verify your connection status and reload inside Telegram.");
       } finally {
         setLoading(false);
       }
     };
     initApp();
-  }, [tonAddress]);
+  }, [tonAddress, metaMaskAddress]);
 
   // Synchronize with database if wallet connection state changes
   useEffect(() => {
-    if (tonAddress && tgUser) {
+    const activeWallet = tonAddress || metaMaskAddress;
+    if (activeWallet && tgUser) {
       apiFetch('/api/user/connect-wallet', {
         method: 'POST',
         body: JSON.stringify({
           telegramUserId: tgUser.id,
-          walletAddress: tonAddress
+          walletAddress: activeWallet
         })
       })
       .then(res => {
@@ -194,11 +274,27 @@ export default function App() {
         }
         return res.json();
       })
-      .then(data => {
+      .then(async data => {
         if (data && data.success) {
+          let extraNativeBalance = data.user.ton_balance || 0;
+          
+          if (metaMaskAddress && (window as any).ethereum) {
+            try {
+              const balanceWei = await (window as any).ethereum.request({
+                method: 'eth_getBalance',
+                params: [metaMaskAddress, 'latest']
+              });
+              extraNativeBalance = parseInt(balanceWei, 16) / 1e18;
+            } catch (err) {
+              console.error("MetaMask dynamic balance fetch error:", err);
+            }
+          }
+
           setState(prev => ({
             ...prev,
-            balance: data.user.ton_marg_balance,
+            balance: data.user.balance || prev.balance,
+            realMargBalance: data.user.ton_marg_balance || 0,
+            tonBalance: extraNativeBalance,
             lockedBalance: data.stats.totalLockedAmount,
             holderPower: data.stats.holderPower,
             level: data.stats.level,
@@ -208,7 +304,7 @@ export default function App() {
       })
       .catch(console.error);
     }
-  }, [tonAddress, tgUser]);
+  }, [tonAddress, metaMaskAddress, tgUser]);
 
   // Recalculate levels offline helper
   const getLevelForPower = (power: number): HolderLevel => {
@@ -223,11 +319,12 @@ export default function App() {
   const updatePowerAndLevel = (partialState: Partial<UserState>) => {
     setState(prev => {
       const nextBalance = partialState.balance !== undefined ? partialState.balance : prev.balance;
+      const nextRealMargBalance = partialState.realMargBalance !== undefined ? partialState.realMargBalance : prev.realMargBalance;
       const nextLocked = partialState.lockedBalance !== undefined ? partialState.lockedBalance : prev.lockedBalance;
       const nextRefPower = partialState.referralPower !== undefined ? partialState.referralPower : prev.referralPower;
       
       const activeLocksPower = prev.locks.reduce((acc, curr) => acc + (curr.powerYield || 0), 0);
-      const calculatedPower = Math.round(nextBalance + activeLocksPower + nextRefPower);
+      const calculatedPower = Math.round(nextRealMargBalance + activeLocksPower + nextRefPower);
       const nextLevel = getLevelForPower(calculatedPower);
 
       const computed = {
@@ -269,12 +366,13 @@ export default function App() {
         return;
       }
 
-      setClaimText(`+1,500 MARG UNLOCKED`);
+      setClaimText(`+1,500 vMARG UNLOCKED`);
       setActiveClaimAnimation(true);
 
       setState(prev => ({
         ...prev,
         balance: data.user.balance,
+        realMargBalance: data.user.ton_marg_balance || 0,
         lastClaimDate: data.user.last_claim_date,
         holderPower: data.stats.holderPower,
         level: data.stats.level,
@@ -311,7 +409,8 @@ export default function App() {
       setState(prev => ({
         ...prev,
         balance: data.user.balance,
-        lockedBalance: data.user.locked_balance,
+        realMargBalance: data.user.ton_marg_balance || 0,
+        lockedBalance: data.stats.totalLockedAmount,
         holderPower: data.stats.holderPower,
         level: data.stats.level,
         locks: formatServerLocks(data.locks)
@@ -342,6 +441,7 @@ export default function App() {
       setState(prev => ({
         ...prev,
         balance: data.user.balance,
+        realMargBalance: data.user.ton_marg_balance || 0,
         mysteryBoxesOwned: data.user.mystery_boxes_owned,
         openedBoxesCount: data.user.opened_boxes_count,
         holderPower: data.stats.holderPower,
@@ -375,6 +475,7 @@ export default function App() {
       setState(prev => ({
         ...prev,
         balance: data.user.balance,
+        realMargBalance: data.user.ton_marg_balance || 0,
         mysteryBoxesOwned: data.user.mystery_boxes_owned,
         holderPower: data.stats.holderPower,
         level: data.stats.level
@@ -426,7 +527,8 @@ export default function App() {
           // Re-sync correct state from server
           setState(prev => ({
             ...prev,
-            balance: data.user.wallet_address ? data.user.ton_marg_balance : data.user.balance,
+            balance: data.user.balance,
+            realMargBalance: data.user.ton_marg_balance || 0,
             mysteryBoxesOwned: data.user.mystery_boxes_owned,
             claimedMilestones: data.user.claimed_milestones || nextClaimed
           }));
@@ -479,7 +581,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen relative text-slate-100 flex flex-col pb-28 pt-4 select-none px-4 bg-radial-glow font-sans bg-grid max-w-md mx-auto border-x border-white/5 shadow-2xl">
+    <div className="min-h-screen relative text-slate-100 flex flex-col pb-28 select-none px-4 bg-radial-glow font-sans bg-grid max-w-md mx-auto border-x border-white/5 shadow-2xl" style={{ paddingTop: topPadding }}>
       <BackgroundEffect />
 
       {/* Extreme particle reward claim pop-up overlay */}
@@ -521,94 +623,187 @@ export default function App() {
           <div className="text-left leading-none">
             <h1 className="text-sm font-display font-black tracking-widest text-[#f5f3ff] uppercase flex items-center gap-1">
               MARG <span className="text-[10px] text-fuchsia-400 font-mono tracking-normal lowercase">v1.2</span>
-              {isSandbox ? (
-                <span className="text-[9px] bg-amber-500/20 border border-amber-500/40 text-amber-400 px-1.5 py-0.5 rounded font-mono font-medium tracking-normal normal-case">Sandbox</span>
-              ) : (
-                <span className="text-[9px] bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 px-1.5 py-0.5 rounded font-mono font-medium tracking-normal normal-case">Live Sync</span>
-              )}
+              <span className="text-[9px] bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 px-1.5 py-0.5 rounded font-mono font-medium tracking-normal normal-case">Live Sync</span>
             </h1>
-            <span className="text-[9px] font-mono uppercase text-[#818cf8]">TON Ecosystem Portal</span>
+            <span className="text-[9px] font-mono uppercase text-[#818cf8]">{metaMaskAddress ? "EVM Web3 Portal" : "TON Ecosystem Portal"}</span>
           </div>
         </div>
 
-        {/* Real TON Connection Controller */}
+        {/* Real Unified Wallet Connection Controller */}
         <button
           onClick={() => {
-            if (tonAddress) {
-              tonConnectUI.disconnect();
+            if (tonAddress || metaMaskAddress) {
+              handleDisconnectWallet();
             } else {
-              tonConnectUI.openModal();
+              setShowWalletConnector(true);
             }
           }}
           className={`py-2 px-3.5 rounded-xl font-display font-black text-[10px] uppercase tracking-wider flex items-center gap-1.5 border transition-all cursor-pointer ${
-            tonAddress
+            (tonAddress || metaMaskAddress)
               ? 'bg-emerald-950/45 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/20 shadow-[0_0_8px_rgba(16,185,129,0.2)]'
               : 'bg-violet-950/45 border-violet-500/40 text-[#c084fc] hover:bg-violet-500/20 shadow-[0_0_10px_rgba(168,85,247,0.25)]'
           }`}
         >
           <Wallet className="w-3.5 h-3.5 animate-pulse" />
-          {tonAddress ? `TON: ${tonAddress.slice(0, 4)}...${tonAddress.slice(-4)}` : 'Link Wallet'}
+          {tonAddress ? `TON: ${tonAddress.slice(0, 4)}...${tonAddress.slice(-4)}` : metaMaskAddress ? `MM: ${metaMaskAddress.slice(0, 5)}...${metaMaskAddress.slice(-4)}` : 'Link Wallet'}
         </button>
       </header>
 
+      {/* WALLET SELECTION DRAWER / MODAL */}
+      <AnimatePresence>
+        {showWalletConnector && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-deep-black/80 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 15 }}
+              className="w-full max-w-sm bg-dark-space/95 border border-white/10 rounded-3xl p-6 relative overflow-hidden shadow-2xl text-left"
+            >
+              <div className="absolute -right-12 -top-12 w-24 h-24 bg-violet-600/10 rounded-full blur-2xl" />
+              <div className="absolute -left-12 -bottom-12 w-24 h-24 bg-fuchsia-600/10 rounded-full blur-2xl" />
+
+              <div className="flex justify-between items-center mb-4">
+                <span className="text-[10px] font-mono text-purple-400 uppercase tracking-widest">Select Network Vault</span>
+                <button 
+                  onClick={() => setShowWalletConnector(false)}
+                  className="text-white/40 hover:text-white/80 font-mono text-xs cursor-pointer px-2 py-1 rounded bg-white/5 border border-white/5 hover:border-white/10"
+                >
+                  ESC
+                </button>
+              </div>
+
+              <h3 className="text-md font-display font-black text-white uppercase tracking-wider mb-2">Connect Your Ledger</h3>
+              <p className="text-[11px] font-mono text-purple-300 mb-6 leading-relaxed">
+                Unlock sovereign features and cross-chain tracking by linking your secure wallet entry point.
+              </p>
+
+              <div className="flex flex-col gap-3">
+                {/* TON Network */}
+                <button
+                  onClick={() => {
+                    setShowWalletConnector(false);
+                    tonConnectUI.openModal();
+                  }}
+                  className="w-full p-4 rounded-2xl bg-black/45 hover:bg-black/70 border border-white/5 hover:border-violet-500/30 transition-all flex items-center justify-between text-left cursor-pointer group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-sky-950/50 border border-sky-500/20 text-sky-400 flex items-center justify-center group-hover:scale-105 transition-all">
+                      <span className="font-display font-black text-xs">TON</span>
+                    </div>
+                    <div>
+                      <span className="block text-xs font-bold text-white uppercase">TON Blockchain</span>
+                      <span className="block text-[9px] font-mono text-sky-300">Telegram WebApp Native</span>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-white/35 group-hover:text-white/80 group-hover:translate-x-1 transition-all" />
+                </button>
+
+                {/* MetaMask (EVM) */}
+                <button
+                  onClick={handleConnectMetaMask}
+                  className="w-full p-4 rounded-2xl bg-black/45 hover:bg-black/70 border border-white/5 hover:border-fuchsia-500/30 transition-all flex items-center justify-between text-left cursor-pointer group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-amber-950/50 border border-amber-500/20 text-amber-500 flex items-center justify-center group-hover:scale-105 transition-all">
+                      <span className="font-display font-black text-xs">EVM</span>
+                    </div>
+                    <div>
+                      <span className="block text-xs font-bold text-white uppercase">MetaMask</span>
+                      <span className="block text-[9px] font-mono text-amber-300">Ethereum & EVM Chains</span>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-white/35 group-hover:text-white/80 group-hover:translate-x-1 transition-all" />
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Dynamic Status Notice Banner */}
-      {isSandbox ? (
-        <div className="w-full bg-amber-500/5 border border-amber-500/15 rounded-2xl p-3.5 mb-6 flex items-center justify-between text-amber-400 relative z-20">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-amber-500/15 flex items-center justify-center text-amber-400">
-              <Sparkles className="w-4 h-4 animate-pulse" />
-            </div>
-            <div className="text-left">
-              <div className="text-[11px] font-bold tracking-wide uppercase leading-none">Sandbox Simulation Mode</div>
-              <div className="text-[9px] text-amber-400/60 font-mono leading-none mt-1">Direct web browser access. Connect TON wallet to sync live MARG balances.</div>
-            </div>
+      <div className="w-full bg-emerald-500/5 border border-emerald-500/15 rounded-2xl p-3.5 mb-6 flex items-center justify-between text-emerald-400 relative z-20">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-lg bg-emerald-500/15 flex items-center justify-center text-emerald-400">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           </div>
-          <span className="text-[9px] bg-amber-950/40 border border-amber-500/30 px-2.5 py-0.5 rounded-full font-mono uppercase text-amber-400 select-none">Active</span>
-        </div>
-      ) : (
-        <div className="w-full bg-emerald-500/5 border border-emerald-500/15 rounded-2xl p-3.5 mb-6 flex items-center justify-between text-emerald-400 relative z-20">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-emerald-500/15 flex items-center justify-center text-emerald-400">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            </div>
-            <div className="text-left">
-              <div className="text-[11px] font-bold tracking-wide uppercase leading-none">Secure Telegram Session</div>
-              <div className="text-[9px] text-emerald-400/60 font-mono leading-none mt-1">Profile verified via HMAC signature. Direct TON network connectivity active.</div>
-            </div>
+          <div className="text-left">
+            <div className="text-[11px] font-bold tracking-wide uppercase leading-none">Secure Telegram Session</div>
+            <div className="text-[9px] text-emerald-400/60 font-mono leading-none mt-1">Profile verified via HMAC signature. Active cryptographic wallet link functional.</div>
           </div>
-          <span className="text-[9px] bg-emerald-950/40 border border-emerald-500/30 px-2.5 py-0.5 rounded-full font-mono uppercase text-emerald-400 select-none">Live</span>
         </div>
-      )}
+        <span className="text-[9px] bg-emerald-950/40 border border-emerald-500/30 px-2.5 py-0.5 rounded-full font-mono uppercase text-emerald-400 select-none">Live</span>
+      </div>
 
       {/* GLOBAL WALLET BALANCES CABINET METRIC */}
-      <section className="w-full bg-dark-space/75 rounded-3xl p-5 border border-white/5 relative overflow-hidden mb-6 z-20 shadow-lg">
+      <section className="w-full bg-dark-space/75 rounded-3xl p-5 border border-white/5 relative overflow-hidden mb-6 z-20 shadow-lg text-left">
         <div className="absolute -right-16 -top-16 w-32 h-32 bg-violet-600/5 rounded-full blur-3xl animate-pulse" />
         <div className="absolute -left-16 -bottom-16 w-32 h-32 bg-fuchsia-600/5 rounded-full blur-3xl animate-pulse" />
 
-        <div className="flex justify-between items-center text-[10px] font-mono text-purple-400/80 tracking-widest uppercase">
-          <span>Active Token Collateral</span>
+        <div className="flex justify-between items-center text-[10px] font-mono text-purple-400/80 tracking-widest uppercase mb-4">
+          <span>Sovereign Account Ledger</span>
           <span className="flex items-center gap-1">
             <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
-            TON Blockchain Node
+            {metaMaskAddress ? 'MetaMask EVM Node' : 'TON Blockchain Node'}
           </span>
         </div>
 
-        <div className="flex items-baseline gap-2 mt-2">
-          <span className="text-4xl font-display font-black text-white text-plasma-glow text-neon-glow tracking-tighter leading-none">
-            {state.balance.toLocaleString()}
-          </span>
-          <span className="text-xs font-mono text-purple-400 tracking-wider">MARG</span>
-        </div>
-
-        {/* Micro split: Locked vs Claims totals */}
-        <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-white/5">
-          <div className="text-left font-mono">
-            <span className="text-[9px] text-white/45 uppercase tracking-wide block">Collateral Vault Locked</span>
-            <span className="text-sm font-bold text-white">{state.lockedBalance.toLocaleString()} MARG</span>
+        {/* Two Columns: vMARG and Real MARG */}
+        <div className="grid grid-cols-2 gap-4 pb-4 border-b border-white/5">
+          <div className="flex flex-col">
+            <span className="text-[10px] font-mono text-purple-400 uppercase tracking-wider block">vMARG Activity Balance</span>
+            <div className="flex items-baseline gap-1 mt-1">
+              <span className="text-2xl font-display font-black text-white text-plasma-glow">
+                {state.balance.toLocaleString()}
+              </span>
+              <span className="text-[9px] font-mono text-purple-400/70">vMARG</span>
+            </div>
+            <span className="text-[9px] font-mono text-white/35 mt-0.5">Virtual activity points</span>
           </div>
-          <div className="text-left font-mono border-l border-white/5 pl-3">
-            <span className="text-[9px] text-white/45 uppercase tracking-wide block">Network Rewards Claimed</span>
-            <span className="text-sm font-bold text-[#c084fc]">{state.totalRewardsClaimed.toLocaleString()}</span>
+
+          <div className="flex flex-col border-l border-white/5 pl-4">
+            <span className="text-[10px] font-mono text-purple-400 uppercase tracking-wider block">Real MARG Balance</span>
+            <div className="flex items-baseline gap-1 mt-1 font-mono">
+              <span className="text-2xl font-display font-black text-[#d8b4fe] text-plasma-glow">
+                {(tonAddress || metaMaskAddress) ? state.realMargBalance.toLocaleString() : '0'}
+              </span>
+              <span className="text-[9px] font-mono text-[#d8b4fe]">MARG</span>
+            </div>
+            <span className="text-[9px] font-mono text-white/35 mt-0.5">
+              {(tonAddress || metaMaskAddress) ? (tonAddress ? 'Real Jettons' : 'MetaMask Linked (EVM)') : 'Connect Wallet to load'}
+            </span>
+          </div>
+        </div>
+
+        {/* Three Columns grid for other metrics */}
+        <div className="grid grid-cols-3 gap-2 mt-4 font-mono text-xs">
+          <div className="text-left">
+            <span className="text-[9px] text-white/45 uppercase tracking-wide block mb-0.5">{tonAddress ? 'GRAM / TON' : 'NATIVE ETH'}</span>
+            <span className="text-[11px] font-bold text-sky-400 block">
+              {(tonAddress || metaMaskAddress) ? `${state.tonBalance.toFixed(3)} ${tonAddress ? 'TON' : 'ETH'}` : '—'}
+            </span>
+            <span className="text-[8px] text-white/30 block mt-0.5 font-sans">Real balance</span>
+          </div>
+
+          <div className="text-left border-l border-white/5 pl-2">
+            <span className="text-[9px] text-white/45 uppercase tracking-wide block mb-0.5">Locked MARG</span>
+            <span className="text-[11px] font-bold text-purple-300 block">
+              {state.lockedBalance.toLocaleString()} MARG
+            </span>
+            <span className="text-[8px] text-white/30 block mt-0.5 font-sans">Real Vault only</span>
+          </div>
+
+          <div className="text-left border-l border-white/5 pl-2">
+            <span className="text-[9px] text-white/45 uppercase tracking-wide block mb-0.5">Holder Power</span>
+            <span className="text-[11px] font-bold text-emerald-400 block flex items-center gap-0.5">
+              <Zap className="w-3 h-3 text-plasma-glow shrink-0 animate-pulse inline" />
+              {state.holderPower.toLocaleString()}
+            </span>
+            <span className="text-[8px] text-white/30 block mt-0.5 font-sans">Level Score</span>
           </div>
         </div>
       </section>
@@ -697,7 +892,7 @@ export default function App() {
 
               {/* Launcher Snapshot System Core */}
               <SnapshotBanner 
-                userBalance={state.balance} 
+                userBalance={state.realMargBalance} 
                 userLocked={state.lockedBalance} 
                 referralsCount={state.referralCount} 
               />
@@ -794,7 +989,7 @@ export default function App() {
               exit={{ opacity: 0, y: -15 }}
             >
               <VaultView 
-                balance={state.balance} 
+                balance={state.realMargBalance} 
                 locks={state.locks} 
                 onLock={handleLockPosition} 
               />
@@ -842,7 +1037,8 @@ export default function App() {
               exit={{ opacity: 0, y: -15 }}
             >
               <BuyView 
-                userBalance={state.balance} 
+                userBalance={state.realMargBalance} 
+                tonBalance={state.tonBalance}
                 onConfirmBuy={handleConfirmBuy} 
               />
             </motion.div>

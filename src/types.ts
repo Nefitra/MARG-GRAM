@@ -24,7 +24,9 @@ export interface LockedPosition {
 }
 
 export interface UserState {
-  balance: number; // MARG tokens in wallet
+  balance: number; // vMARG virtual activity balance
+  realMargBalance: number; // REAL MARG tokens in wallet
+  tonBalance: number; // REAL TON/GRAM balance
   lockedBalance: number; // MARG locked
   holderPower: number; // calculated from held + locked * multiplier
   level: HolderLevel;

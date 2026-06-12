@@ -84,7 +84,7 @@ export default function LeaderboardView({
           <div className="w-full">
             <div className="flex justify-between text-[9px] font-mono mb-1 text-purple-300">
               <span>Next Core Level</span>
-              <span>{Math.round(progressPercent)}% To {nextMilestone.power.toLocaleString()} MARG</span>
+              <span>{Math.round(progressPercent)}% To {nextMilestone.power.toLocaleString()} Power</span>
             </div>
             <div className="w-full h-2 bg-slate-950 rounded-full overflow-hidden border border-white/5">
               <div 
@@ -133,7 +133,7 @@ export default function LeaderboardView({
                   <div className="text-left font-mono">
                     <span className="text-xs font-bold text-white block truncate">{m.name}</span>
                     <span className="text-[9px] text-[#c084fc] block mt-0.5">
-                      +{m.margReward.toLocaleString()} MARG & +{m.boxesReward} Containers
+                      +{m.margReward.toLocaleString()} vMARG & +{m.boxesReward} Containers
                     </span>
                     <span className="text-[8.5px] text-white/40 block leading-tight mt-1 line-clamp-1">
                       {m.desc}

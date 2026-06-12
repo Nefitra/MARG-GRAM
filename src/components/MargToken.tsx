@@ -165,13 +165,13 @@ export default function MargToken({ onTap, size = 180 }: MargTokenProps) {
           >
             <Sparkles className="w-4 h-4 text-electric-purple animate-ping" />
             <span>+{c.amount}</span>
-            <span className="text-xs text-plasma-glow">MARG</span>
+            <span className="text-xs text-plasma-glow">vMARG</span>
           </motion.div>
         ))}
       </AnimatePresence>
 
       <span className="text-xs font-mono tracking-widest text-indigo-300 mt-2 opacity-80 uppercase flex items-center gap-1">
-        <Sparkles className="w-3 h-3 text-electric-purple animate-spin" /> Tap to Manifest MARG
+        <Sparkles className="w-3 h-3 text-electric-purple animate-spin" /> Tap to earn vMARG
       </span>
     </div>
   );

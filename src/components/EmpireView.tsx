@@ -25,20 +25,23 @@ export default function EmpireView({ referralCount, referralPower, referralRank,
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Coordinates of nodes representing user positions in the Empire web layout
-  const nodes = [
-    { x: 50, y: 50, label: 'YOU', level: 'center', power: 'Elite' },
-    { x: 18, y: 25, label: '@TG_Alpha', level: 'direct', power: '+800' },
-    { x: 82, y: 25, label: '@DeFi_Whale', level: 'direct', power: '+1,200' },
-    { x: 20, y: 75, label: '@Ton_Master', level: 'direct', power: '+950' },
-    { x: 80, y: 75, label: '@Web3_Ninja', level: 'direct', power: '+700' },
-
-    // Secondary sub networks, visible inside the ecosystem
-    { x: 5, y: 15, label: 'Node A', level: 'sub', power: '+200' },
-    { x: 92, y: 15, label: 'Node B', level: 'sub', power: '+150' },
-    { x: 5, y: 90, label: 'Node C', level: 'sub', power: '+300' },
-    { x: 92, y: 90, label: 'Node D', level: 'sub', power: '+180' },
+  // Dynamically generate visual nodes based on actual real referralCount
+  const nodes = [{ x: 50, y: 50, label: 'YOU', level: 'center', power: 'Elite' }];
+  
+  const presets = [
+    { x: 18, y: 25, label: 'Node L1-A', level: 'direct', power: '+1,500' },
+    { x: 82, y: 25, label: 'Node L1-B', level: 'direct', power: '+1,500' },
+    { x: 20, y: 75, label: 'Node L1-C', level: 'direct', power: '+1,500' },
+    { x: 80, y: 75, label: 'Node L1-D', level: 'direct', power: '+1,500' },
+    { x: 5, y: 15, label: 'Node L2-A', level: 'sub', power: '+500' },
+    { x: 92, y: 15, label: 'Node L2-B', level: 'sub', power: '+500' },
+    { x: 5, y: 90, label: 'Node L2-C', level: 'sub', power: '+500' },
+    { x: 92, y: 90, label: 'Node L2-D', level: 'sub', power: '+500' },
   ];
+
+  for (let i = 0; i < Math.min(referralCount, presets.length); i++) {
+    nodes.push(presets[i]);
+  }
 
   return (
     <div className="flex flex-col gap-6 w-full max-w-[480px] mx-auto">
@@ -50,19 +53,25 @@ export default function EmpireView({ referralCount, referralPower, referralRank,
 
         {/* Dynamic Nodes Canvas */}
         <div className="relative w-full h-[220px] bg-black/40 border border-purple-500/10 rounded-2xl p-4 overflow-hidden">
+          {referralCount === 0 ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center z-30 bg-black/30 backdrop-blur-xs">
+              <UsersRound className="w-8 h-8 text-purple-400/40 mb-2 animate-pulse" />
+              <p className="text-[11px] font-mono text-purple-300/70 uppercase">No connections secured yet</p>
+              <p className="text-[10px] text-white/40 max-w-[220px] leading-relaxed mt-1">Populate your peer-to-peer ledger network nodes by sharing your gateway link below.</p>
+            </div>
+          ) : null}
+
           {/* Glowing connections between nodes */}
           <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
-            {/* Center Connectors to Direct node points */}
-            <line x1="50" y1="50" x2="18" y2="25" stroke="#a855f7" strokeWidth="1.5" strokeDasharray="3 3" className="animate-pulse" />
-            <line x1="50" y1="50" x2="82" y2="25" stroke="#a855f7" strokeWidth="1.5" strokeDasharray="3 3" />
-            <line x1="50" y1="50" x2="20" y2="75" stroke="#a855f7" strokeWidth="1.5" strokeDasharray="3 3" />
-            <line x1="50" y1="50" x2="80" y2="75" stroke="#a855f7" strokeWidth="1.5" strokeDasharray="3 3" />
+            {referralCount >= 1 && <line x1="50" y1="50" x2="18" y2="25" stroke="#a855f7" strokeWidth="1.5" strokeDasharray="3 3" className="animate-pulse" />}
+            {referralCount >= 2 && <line x1="50" y1="50" x2="82" y2="25" stroke="#a855f7" strokeWidth="1.5" strokeDasharray="3 3" />}
+            {referralCount >= 3 && <line x1="50" y1="50" x2="20" y2="75" stroke="#a855f7" strokeWidth="1.5" strokeDasharray="3 3" />}
+            {referralCount >= 4 && <line x1="50" y1="50" x2="80" y2="75" stroke="#a855f7" strokeWidth="1.5" strokeDasharray="3 3" />}
 
-            {/* Direct Connectors to Sub nodes */}
-            <line x1="18" y1="25" x2="5" y2="15" stroke="rgba(168, 85, 247, 0.3)" strokeWidth="1" />
-            <line x1="82" y1="25" x2="92" y2="15" stroke="rgba(168, 85, 247, 0.3)" strokeWidth="1" />
-            <line x1="20" y1="75" x2="5" y2="90" stroke="rgba(168, 85, 247, 0.3)" strokeWidth="1" />
-            <line x1="80" y1="75" x2="92" y2="90" stroke="rgba(168, 85, 247, 0.3)" strokeWidth="1" />
+            {referralCount >= 5 && <line x1="18" y1="25" x2="5" y2="15" stroke="rgba(168, 85, 247, 0.3)" strokeWidth="1" />}
+            {referralCount >= 6 && <line x1="82" y1="25" x2="92" y2="15" stroke="rgba(168, 85, 247, 0.3)" strokeWidth="1" />}
+            {referralCount >= 7 && <line x1="20" y1="75" x2="5" y2="90" stroke="rgba(168, 85, 247, 0.3)" strokeWidth="1" />}
+            {referralCount >= 8 && <line x1="80" y1="75" x2="92" y2="90" stroke="rgba(168, 85, 247, 0.3)" strokeWidth="1" />}
           </svg>
 
           {/* Renders Interactive Nodes */}

@@ -15,9 +15,9 @@ interface MysteryBoxViewProps {
 }
 
 const REWARDS_POOL = [
-  { text: '+250 MARG Tokens', val: 250, special: false, rarity: 'Common' },
-  { text: '+500 MARG Tokens', val: 500, special: false, rarity: 'Rare' },
-  { text: '+1,200 MARG Tokens', val: 1200, special: false, rarity: 'Epic' },
+  { text: '+250 vMARG Points', val: 250, special: false, rarity: 'Common' },
+  { text: '+500 vMARG Points', val: 500, special: false, rarity: 'Rare' },
+  { text: '+1,200 vMARG Points', val: 1200, special: false, rarity: 'Epic' },
   { text: 'PLASMA MULTIPLIER (+0.4x Multiplier)', val: 200, special: true, type: 'multiplier', rarity: 'Legendary' },
   { text: 'HOLOGRAPHIC CHIP (+1,500 Holder Power)', val: 1500, special: true, type: 'power', rarity: 'Legendary' },
 ];
@@ -198,7 +198,7 @@ export default function MysteryBoxView({ boxesOwned, onOpenBox, onBuyBoxes, user
         <div className="flex flex-col gap-1 text-left">
           <span className="text-[10px] font-mono text-purple-400">LIQUID EXCHANGE EXCHANGE</span>
           <h4 className="text-sm font-display font-bold text-white uppercase tracking-wider">Acquire Mystery Containers</h4>
-          <span className="text-xs text-purple-300/80 font-mono">Cost: 500 MARG tokens per bundle</span>
+          <span className="text-xs text-purple-300/80 font-mono">Cost: 500 vMARG points per bundle</span>
         </div>
 
         <button
@@ -225,15 +225,15 @@ export default function MysteryBoxView({ boxesOwned, onOpenBox, onBuyBoxes, user
         </h4>
         <div className="flex flex-col gap-2 font-mono text-xs">
           <div className="flex items-center justify-between py-1.5 border-b border-white/5">
-            <span className="text-white/60">Common drop (+250 MARG)</span>
+            <span className="text-white/60">Common drop (+250 vMARG)</span>
             <span className="text-purple-400 font-bold">45.0%</span>
           </div>
           <div className="flex items-center justify-between py-1.5 border-b border-white/5">
-            <span className="text-white/60">Rare drop (+500 MARG)</span>
+            <span className="text-white/60">Rare drop (+500 vMARG)</span>
             <span className="text-[#a78bfa] font-bold">30.0%</span>
           </div>
           <div className="flex items-center justify-between py-1.5 border-b border-white/5">
-            <span className="text-white/60">Epic drop (+1,200 MARG)</span>
+            <span className="text-white/60">Epic drop (+1,200 vMARG)</span>
             <span className="text-fuchsia-400 font-bold">15.0%</span>
           </div>
           <div className="flex items-center justify-between py-1.5 border-b border-white/5">
